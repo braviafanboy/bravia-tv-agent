@@ -6,9 +6,14 @@ cannot expose over its local gRPC control plane or the Sony cloud, to the
 integration. It has no purpose on its own: the integration defines the
 contract, discovers the agent on the LAN, and turns its data into entities.
 
-**Status: planning.** No app code yet. See [`docs/plan.md`](docs/plan.md) for
-the design and roadmap and [`docs/contract.md`](docs/contract.md) for the
-JSON the integration will consume.
+**Status: phase 0 running on a BRAVIA 8 II** (2026-11-02): foreground service,
+HTTP server on port 8585 with `/v1/info`, `/v1/state`, `/v1/themes` and the
+`/v1/events` stream, mDNS advert `_bravia-agent._tcp`, readers for
+environment, display, HDMI inputs, audio, Wi-Fi and the Sony settings keys,
+boot start and a status screen. No media sessions, Bluetooth or pairing yet.
+Built with `app/build.sh` (SDK tools only, no Gradle). See
+[`docs/plan.md`](docs/plan.md) for the design and roadmap and
+[`docs/contract.md`](docs/contract.md) for the JSON the integration consumes.
 
 ## What it adds
 
