@@ -11,6 +11,9 @@ import java.io.IOException;
 import java.io.PipedInputStream;
 import java.io.PipedOutputStream;
 import java.nio.charset.StandardCharsets;
+import java.util.concurrent.BlockingQueue;
+import java.util.concurrent.LinkedBlockingQueue;
+import java.util.concurrent.TimeUnit;
 
 import fi.iki.elonen.NanoHTTPD;
 
@@ -19,6 +22,7 @@ public final class HttpServer extends NanoHTTPD {
     private static final String TAG = "BraviaAgent";
     public static final int CONTRACT = 1;
     private static final long HEARTBEAT_MS = 30000;
+    private static final int QUEUE_DEPTH = 16;
 
     private final StateStore store;
     private final ThemesReader themes;
@@ -65,7 +69,14 @@ public final class HttpServer extends NanoHTTPD {
         return newFixedLengthResponse(status, "application/json", o.toString());
     }
 
-    /** Server-Sent Events: a state event on change (coalesced), heartbeats every 30 s. */
+    /**
+     * Server-Sent Events: a state event on change (coalesced), heartbeats every
+     * 30 s. All socket writes happen on the per-client writer thread; the
+     * StateStore listener only queues, so a dead client can never block or
+     * crash the main thread. The pipe's read end is closed by NanoHTTPD when
+     * the client goes away, which makes the next write fail and ends the
+     * subscription.
+     */
     private Response events() {
         final PipedInputStream in = new PipedInputStream(65536);
         final PipedOutputStream out;
@@ -74,25 +85,20 @@ public final class HttpServer extends NanoHTTPD {
         } catch (IOException e) {
             return error(Response.Status.INTERNAL_ERROR, "stream_failed");
         }
-        final Object lock = new Object();
-        final StateStore.Listener listener = snapshot -> {
-            synchronized (lock) {
-                write(out, "event: state\ndata: " + snapshot.toString() + "\n\n");
-            }
-        };
+        final BlockingQueue<String> queue = new LinkedBlockingQueue<>(QUEUE_DEPTH);
+        final StateStore.Listener listener = snapshot -> queue.offer(stateEvent(snapshot));
+        queue.offer(stateEvent(store.snapshot()));
         store.addListener(listener);
-        // Initial state immediately, then heartbeats until the client goes away.
         Thread t = new Thread(() -> {
             try {
-                listener.onStateChanged(store.snapshot());
-                while (true) {
-                    Thread.sleep(HEARTBEAT_MS);
-                    synchronized (lock) {
-                        write(out, "event: heartbeat\ndata: {}\n\n");
-                    }
+                while (!Thread.currentThread().isInterrupted()) {
+                    String msg = queue.poll(HEARTBEAT_MS, TimeUnit.MILLISECONDS);
+                    if (msg == null) msg = "event: heartbeat\ndata: {}\n\n";
+                    out.write(msg.getBytes(StandardCharsets.UTF_8));
+                    out.flush();
                 }
-            } catch (Exception e) {
-                // write() failed or interrupted: client disconnected.
+            } catch (IOException | InterruptedException e) {
+                // Pipe closed: client disconnected.
             } finally {
                 store.removeListener(listener);
                 try { out.close(); } catch (IOException ignored) { }
@@ -106,13 +112,8 @@ public final class HttpServer extends NanoHTTPD {
         return r;
     }
 
-    private static void write(PipedOutputStream out, String s) {
-        try {
-            out.write(s.getBytes(StandardCharsets.UTF_8));
-            out.flush();
-        } catch (IOException e) {
-            throw new RuntimeException(e);
-        }
+    private static String stateEvent(JSONObject snapshot) {
+        return "event: state\ndata: " + snapshot.toString() + "\n\n";
     }
 
     static JSONArray strings(Iterable<String> items) {

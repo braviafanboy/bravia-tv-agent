@@ -28,10 +28,15 @@ public final class DeviceIdentity {
     private static final String KEY_ID = "device_unique_id";
     private static final Pattern ID = Pattern.compile("-([0-9a-f]{40})$", Pattern.CASE_INSENSITIVE);
 
+    public interface Callback {
+        void onResolved(String deviceUniqueId);
+    }
+
     private final Context context;
     private final NsdManager nsd;
     private NsdManager.DiscoveryListener discovery;
     private volatile String deviceUniqueId;
+    private Callback callback;
 
     public DeviceIdentity(Context context) {
         this.context = context;
@@ -41,6 +46,10 @@ public final class DeviceIdentity {
 
     public String deviceUniqueId() {
         return deviceUniqueId;
+    }
+
+    public void setCallback(Callback callback) {
+        this.callback = callback;
     }
 
     public static String model() {
@@ -90,6 +99,8 @@ public final class DeviceIdentity {
         context.getSharedPreferences(PREFS, Context.MODE_PRIVATE).edit().putString(KEY_ID, id).apply();
         Log.i(TAG, "device_unique_id resolved");
         stop();
+        Callback cb = callback;
+        if (cb != null) cb.onResolved(id);
     }
 
     static Set<String> localAddresses() {

@@ -61,14 +61,22 @@ block, without which the Living Decor provider query returns a null cursor
 
 ### App
 
-- Kotlin, single module, `minSdk 31`, `targetSdk 34` (the TV runs Android 14).
-  Leanback launcher entry so it is visible and can show its status screen.
-- One foreground service (`FOREGROUND_SERVICE_CONNECTED_DEVICE`) started at
-  boot (`RECEIVE_BOOT_COMPLETED`) and from the launcher activity. Android TV
-  shows a persistent notification for it; that is acceptable and expected.
-- An embedded HTTP server on a fixed port (**proposal: 8585**) bound to all
-  interfaces, plain HTTP, JSON only. Candidates: NanoHTTPD (tiny) or Ktor
-  CIO (nicer streaming). Decide at phase 0.
+- Plain Java, no Gradle (`app/build.sh` drives aapt2/javac/d8/apksigner),
+  `minSdk 31`, `targetSdk 34` (the TV runs Android 14). Leanback launcher
+  entry so it is visible and can show its status screen.
+- One foreground service (`FOREGROUND_SERVICE_CONNECTED_DEVICE`, which on
+  Android 14 also needs `CHANGE_WIFI_MULTICAST_STATE` as its companion
+  permission) started at boot, after a reinstall (`MY_PACKAGE_REPLACED`) and
+  from the launcher activity; `START_STICKY` so the system restarts it after a
+  crash. If a restart lands in a context where Android refuses
+  `startForeground()` the service keeps running un-promoted and reports
+  `agent.foreground=false` in `/v1/info`; the next start from an allowed
+  context promotes it. Android TV shows a persistent notification for it;
+  that is acceptable and expected.
+- An embedded HTTP server on port **8585** bound to all interfaces, plain
+  HTTP, JSON only. NanoHTTPD 2.3.1 (one jar, no dependencies); SSE is a
+  chunked response fed from a per-client queue by a writer thread, so a dead
+  client never blocks or crashes anything else.
 - mDNS service `_bravia-agent._tcp` with TXT `v=<contract>`,
   `id=<TV device unique id>` so the integration can match it to the right
   config entry without the user typing anything. The id is the same 40-hex
@@ -151,10 +159,35 @@ block, without which the Living Decor provider query returns a null cursor
 | 3 | Bearer token, Wi-Fi block, hardening (reconnect, memory, doze on standby) | long-running stability over weeks |
 | HA | Integration support lands alongside phase 0 (discovery + lux/temperature) and grows with each phase | — |
 
+## Phase 0 findings (2026-11-02, BRAVIA 8 II, Android 14)
+
+- Standby does not kill the service: same PID before, during and after a
+  sleep/wake cycle. The TV is simply unreachable from the LAN while asleep
+  (HTTP connect fails, as the gRPC port does), and answers again within 10 s
+  of waking. The integration should treat the agent as unavailable whenever
+  the TV is off and resume on power-on; no relaunch is needed.
+- The first "standby killed it" observation was two bugs of our own: the SSE
+  listener wrote to the pipe of a client that had already disconnected and
+  the wrapped `IOException` crashed the main thread; the sticky restart 1 s
+  later, with the screen off, was refused `startForeground()` and crashed
+  again, which put the service on a 28-minute restart back-off. Fixed by
+  moving all SSE writes onto the writer thread and by tolerating a refused
+  promotion.
+- An induced crash (`am crash`) with the TV awake restarts the service within
+  5 s and the promotion succeeds.
+- `device_unique_id` resolves from the TV's own `_sonysmarthome._tcp` advert
+  a few seconds after start; the mDNS advert is re-registered with `id=` once
+  it is known.
+- Readable without any privileged permission: light and temperature sensors,
+  DisplayManager state, HDMI inputs, audio, Wi-Fi RSSI/link speed, the Sony
+  settings keys, the Living Decor theme list (needs a `<queries>` entry for
+  the provider under Android 11+ package visibility).
+
 ## Open questions
 
-- Does the foreground service survive the TV's standby/wake cycles, and does
-  the HTTP server keep its port after a network drop? (Phase 0 soak test.)
+- Does the HTTP server keep its port after a Wi-Fi drop or IP change, and does
+  the mDNS advert come back? (Phase 3 soak test; the standby question is
+  answered below.)
 - Does the Living Decor provider also list downloaded/seasonal themes, and do
   the ids stay stable across Living Decor updates?
 - Which Sony settings keys are writable from a normal app, if any?

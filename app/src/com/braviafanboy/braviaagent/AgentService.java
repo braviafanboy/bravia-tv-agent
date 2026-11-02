@@ -53,6 +53,7 @@ public final class AgentService extends Service implements HttpServer.InfoProvid
     private NsdManager nsd;
     private NsdManager.RegistrationListener registration;
     private String registeredId;
+    private boolean foreground;
 
     public static AgentService instance() {
         return instance;
@@ -67,9 +68,10 @@ public final class AgentService extends Service implements HttpServer.InfoProvid
     public void onCreate() {
         super.onCreate();
         instance = this;
-        startForeground(NOTIFICATION_ID, buildNotification(), ServiceInfo.FOREGROUND_SERVICE_TYPE_CONNECTED_DEVICE);
+        foreground = promoteToForeground();
         store = new StateStore();
         identity = new DeviceIdentity(this);
+        identity.setCallback(id -> new android.os.Handler(getMainLooper()).post(this::registerMdns));
         themes = new ThemesReader(this);
         environment = new EnvironmentReader(this, store);
         display = new DisplayReader(this, store);
@@ -98,6 +100,7 @@ public final class AgentService extends Service implements HttpServer.InfoProvid
     @Override
     public int onStartCommand(Intent intent, int flags, int startId) {
         // Re-register mDNS if the device id became known since we registered.
+        if (!foreground) foreground = promoteToForeground();
         String id = identity.deviceUniqueId();
         if (id != null && !id.equals(registeredId)) registerMdns();
         return START_STICKY;
@@ -136,6 +139,7 @@ public final class AgentService extends Service implements HttpServer.InfoProvid
             agent.put("version", VERSION);
             agent.put("contract", HttpServer.CONTRACT);
             agent.put("port", PORT);
+            agent.put("foreground", foreground);
             o.put("agent", agent);
             JSONObject tv = new JSONObject();
             tv.put("model", DeviceIdentity.model());
@@ -153,6 +157,23 @@ public final class AgentService extends Service implements HttpServer.InfoProvid
         } catch (Exception ignored) {
         }
         return o;
+    }
+
+    /**
+     * Android 14 refuses startForeground() when the service was (re)started
+     * from the background, e.g. a START_STICKY restart after the process died.
+     * The agent keeps running as a plain started service in that case; the
+     * next start from an allowed context (boot, app launch by the user or by
+     * the integration) promotes it again.
+     */
+    private boolean promoteToForeground() {
+        try {
+            startForeground(NOTIFICATION_ID, buildNotification(), ServiceInfo.FOREGROUND_SERVICE_TYPE_CONNECTED_DEVICE);
+            return true;
+        } catch (android.app.ForegroundServiceStartNotAllowedException e) {
+            Log.w(TAG, "foreground not allowed from this context; running in background: " + e.getMessage());
+            return false;
+        }
     }
 
     private void registerMdns() {
