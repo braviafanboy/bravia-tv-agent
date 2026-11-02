@@ -16,9 +16,11 @@ import android.os.IBinder;
 import android.util.Log;
 
 import com.braviafanboy.braviaagent.readers.AudioReader;
+import com.braviafanboy.braviaagent.readers.BluetoothReader;
 import com.braviafanboy.braviaagent.readers.DisplayReader;
 import com.braviafanboy.braviaagent.readers.EnvironmentReader;
 import com.braviafanboy.braviaagent.readers.InputsReader;
+import com.braviafanboy.braviaagent.readers.MediaReader;
 import com.braviafanboy.braviaagent.readers.SettingsReader;
 import com.braviafanboy.braviaagent.readers.ThemesReader;
 import com.braviafanboy.braviaagent.readers.WifiReader;
@@ -47,6 +49,8 @@ public final class AgentService extends Service implements HttpServer.InfoProvid
     private DisplayReader display;
     private InputsReader inputs;
     private AudioReader audio;
+    private MediaReader media;
+    private BluetoothReader bluetooth;
     private WifiReader wifi;
     private SettingsReader settings;
     private ThemesReader themes;
@@ -77,16 +81,20 @@ public final class AgentService extends Service implements HttpServer.InfoProvid
         display = new DisplayReader(this, store);
         inputs = new InputsReader(this, store);
         audio = new AudioReader(this, store);
+        media = new MediaReader(this, store);
+        bluetooth = new BluetoothReader(this, store);
         wifi = new WifiReader(this, store);
         settings = new SettingsReader(this, store);
         environment.start();
         display.start();
         inputs.start();
         audio.start();
+        media.start();
+        bluetooth.start();
         wifi.start();
         settings.start();
         identity.start();
-        server = new HttpServer(PORT, store, themes, this);
+        server = new HttpServer(PORT, store, themes, this, media);
         try {
             server.start(HttpServer.SOCKET_READ_TIMEOUT, false);
             Log.i(TAG, "http server on :" + PORT);
@@ -114,6 +122,8 @@ public final class AgentService extends Service implements HttpServer.InfoProvid
         display.stop();
         inputs.stop();
         audio.stop();
+        media.stop();
+        bluetooth.stop();
         wifi.stop();
         settings.stop();
         identity.stop();
@@ -128,6 +138,14 @@ public final class AgentService extends Service implements HttpServer.InfoProvid
 
     public StateStore store() {
         return store;
+    }
+
+    /** Notification access or a runtime permission may have changed. */
+    public void onPermissionsMaybeChanged() {
+        new android.os.Handler(getMainLooper()).post(() -> {
+            if (media != null) media.recheckPermission();
+            if (bluetooth != null) bluetooth.recheckPermission();
+        });
     }
 
     /** Document for /v1/info. */
@@ -148,12 +166,11 @@ public final class AgentService extends Service implements HttpServer.InfoProvid
             tv.put("build", Build.DISPLAY);
             o.put("tv", tv);
             JSONObject perms = new JSONObject();
-            perms.put("notification_access", false);
-            perms.put("bluetooth_connect",
-                checkSelfPermission("android.permission.BLUETOOTH_CONNECT") == PackageManager.PERMISSION_GRANTED);
+            perms.put("notification_access", media.isGranted());
+            perms.put("bluetooth_connect", bluetooth.isGranted());
             perms.put("usage_access", false);
             o.put("permissions", perms);
-            o.put("endpoints", new JSONArray(Arrays.asList("/v1/state", "/v1/events", "/v1/themes")));
+            o.put("endpoints", new JSONArray(Arrays.asList("/v1/state", "/v1/events", "/v1/themes", MediaReader.ARTWORK_PATH)));
         } catch (Exception ignored) {
         }
         return o;

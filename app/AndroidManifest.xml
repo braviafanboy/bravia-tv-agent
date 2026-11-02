@@ -18,6 +18,8 @@
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_CONNECTED_DEVICE" />
     <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" />
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
+    <!-- Runtime permission; the status screen asks for it. Remote battery. -->
+    <uses-permission android:name="android.permission.BLUETOOTH_CONNECT" />
     <!-- Sony's settings provider; protection level "normal". -->
     <uses-permission android:name="com.sony.dtv.settingsprovider.permission.READ_SETTINGS" />
 
@@ -46,6 +48,17 @@
             android:name=".AgentService"
             android:exported="false"
             android:foregroundServiceType="connectedDevice" />
+
+        <!-- Grants MediaSessionManager access once the user enables Notification
+             access for the agent; it does not read notifications. -->
+        <service
+            android:name=".MediaListenerService"
+            android:exported="true"
+            android:permission="android.permission.BIND_NOTIFICATION_LISTENER_SERVICE">
+            <intent-filter>
+                <action android:name="android.service.notification.NotificationListenerService" />
+            </intent-filter>
+        </service>
 
         <receiver android:name=".BootReceiver" android:exported="true">
             <intent-filter>

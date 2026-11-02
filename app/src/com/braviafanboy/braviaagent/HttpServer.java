@@ -2,11 +2,13 @@ package com.braviafanboy.braviaagent;
 
 import android.util.Log;
 
+import com.braviafanboy.braviaagent.readers.MediaReader;
 import com.braviafanboy.braviaagent.readers.ThemesReader;
 
 import org.json.JSONArray;
 import org.json.JSONObject;
 
+import java.io.ByteArrayInputStream;
 import java.io.IOException;
 import java.io.PipedInputStream;
 import java.io.PipedOutputStream;
@@ -27,16 +29,18 @@ public final class HttpServer extends NanoHTTPD {
     private final StateStore store;
     private final ThemesReader themes;
     private final InfoProvider info;
+    private final MediaReader media;
 
     public interface InfoProvider {
         JSONObject info();
     }
 
-    public HttpServer(int port, StateStore store, ThemesReader themes, InfoProvider info) {
+    public HttpServer(int port, StateStore store, ThemesReader themes, InfoProvider info, MediaReader media) {
         super(port);
         this.store = store;
         this.themes = themes;
         this.info = info;
+        this.media = media;
     }
 
     @Override
@@ -52,6 +56,13 @@ public final class HttpServer extends NanoHTTPD {
                 return json(o);
             }
             case "/v1/events": return events();
+            case MediaReader.ARTWORK_PATH: {
+                byte[] png = media == null ? null : media.artwork();
+                if (png == null) return error(Response.Status.NOT_FOUND, "no_artwork");
+                Response r = newFixedLengthResponse(Response.Status.OK, "image/png", new ByteArrayInputStream(png), png.length);
+                r.addHeader("Cache-Control", "no-store");
+                return r;
+            }
             case "/": return json(info.info());
             default: return error(Response.Status.NOT_FOUND, "not_found");
         }
