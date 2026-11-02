@@ -99,11 +99,14 @@ block, without which the Living Decor provider query returns a null cursor
   the agent, seeing it was started by DeviceControlService rather than the
   launcher (`Activity.getReferrer()`), opens a short pairing window
   (~60 s) during which the first `POST /v1/pair` from the LAN is accepted
-  and its bearer token stored; every later request must carry it. The local
-  launch carries no URI (the Seeds code passes `uri = null`), so the token
-  cannot ride in the launch itself; when the cloud channel is available the
-  integration can instead deliver the token directly with a deep link
-  (`application.deep_link` → `braviaagent://pair?token=…`), which needs no
+  and its bearer token stored; every later request must carry it. Two launch
+  paths exist and differ only in whether they carry a URI: the **cloud**
+  deep link (`application.deep_link`) attaches any URI to any package — no
+  allow-list, DeviceControlService just builds the launch intent for the
+  named package — so when the cloud is reachable the integration delivers
+  the token directly (`braviaagent://pair?token=…`, no window needed); the
+  **local** gRPC launch (`system_setting.application`) starts the app but
+  the Seeds service passes `uri = null`, so it can only open the pairing
   window. Re-pairing is the same flow again. Until phase 3: LAN-only and
   unauthenticated like the TV's own REST port 80.
 
