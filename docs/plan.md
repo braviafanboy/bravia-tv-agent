@@ -91,9 +91,21 @@ block, without which the Living Decor provider query returns a null cursor
 - `GET /v1/themes` — Living Decor theme list (rarely changes; polled hourly).
 - `GET /v1/info` — app version, contract version, granted permissions, TV
   model / firmware (from `Build` and the settings provider).
-- Phase 3: a bearer token shown on the status screen, required for all
-  endpoints; until then LAN-only and unauthenticated like the TV's own REST
-  port 80.
+- Authentication (phase 3) piggybacks on the integration's existing gRPC
+  credentials instead of a token typed from the status screen. The agent
+  cannot share or verify Sony's session keys, but only a holder of them can
+  launch an app on the TV through the authenticated local write
+  (`system_setting.application`). So: the integration launches the agent;
+  the agent, seeing it was started by DeviceControlService rather than the
+  launcher (`Activity.getReferrer()`), opens a short pairing window
+  (~60 s) during which the first `POST /v1/pair` from the LAN is accepted
+  and its bearer token stored; every later request must carry it. The local
+  launch carries no URI (the Seeds code passes `uri = null`), so the token
+  cannot ride in the launch itself; when the cloud channel is available the
+  integration can instead deliver the token directly with a deep link
+  (`application.deep_link` → `braviaagent://pair?token=…`), which needs no
+  window. Re-pairing is the same flow again. Until phase 3: LAN-only and
+  unauthenticated like the TV's own REST port 80.
 
 ### Integration side (bravia-tv-grpc-homeassistant)
 
