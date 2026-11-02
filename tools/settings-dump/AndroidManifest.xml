@@ -1,0 +1,20 @@
+<?xml version="1.0" encoding="utf-8"?>
+<manifest xmlns:android="http://schemas.android.com/apk/res/android"
+    package="com.braviafanboy.settingsdump"
+    android:versionCode="1"
+    android:versionName="0.1">
+    <uses-sdk android:minSdkVersion="30" android:targetSdkVersion="34" />
+    <!-- Sony's settings provider: READ_SETTINGS is protection level "normal",
+         so declaring it is enough. READ_SECURE_SETTINGS is signature-level and
+         is requested only to confirm it is refused. -->
+    <uses-permission android:name="com.sony.dtv.settingsprovider.permission.READ_SETTINGS" />
+    <uses-permission android:name="com.sony.dtv.settingsprovider.permission.READ_SECURE_SETTINGS" />
+    <application android:label="Settings dump" android:banner="@android:drawable/sym_def_app_icon">
+        <activity android:name=".DumpActivity" android:exported="true">
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.LEANBACK_LAUNCHER" />
+            </intent-filter>
+        </activity>
+    </application>
+</manifest>
