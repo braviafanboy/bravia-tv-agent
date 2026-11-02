@@ -1,9 +1,17 @@
 package com.braviafanboy.braviaagent.readers;
 
+import android.bluetooth.BluetoothA2dp;
 import android.bluetooth.BluetoothAdapter;
 import android.bluetooth.BluetoothClass;
 import android.bluetooth.BluetoothDevice;
+import android.bluetooth.BluetoothGatt;
+import android.bluetooth.BluetoothGattCallback;
+import android.bluetooth.BluetoothGattCharacteristic;
+import android.bluetooth.BluetoothGattDescriptor;
+import android.bluetooth.BluetoothGattService;
+import android.bluetooth.BluetoothHeadset;
 import android.bluetooth.BluetoothManager;
+import android.bluetooth.BluetoothProfile;
 import android.content.BroadcastReceiver;
 import android.content.Context;
 import android.content.Intent;
@@ -11,6 +19,7 @@ import android.content.IntentFilter;
 import android.content.pm.PackageManager;
 import android.os.Handler;
 import android.os.Looper;
+import android.util.Log;
 
 import com.braviafanboy.braviaagent.StateStore;
 
@@ -18,39 +27,57 @@ import org.json.JSONArray;
 import org.json.JSONObject;
 
 import java.util.HashMap;
+import java.util.List;
 import java.util.Map;
 import java.util.Set;
+import java.util.UUID;
 
 /**
  * Bonded Bluetooth devices, the remote first (needs BLUETOOTH_CONNECT).
- * Connection state and battery level come from system broadcasts, so both
- * are null until the first event after the agent starts; the remote
- * reconnects on every wake, which fills them in quickly.
+ *
+ * Connection state comes from public profile APIs: the system-wide GATT
+ * connection list for LE devices (the remote) and the A2DP / Headset proxies
+ * for classic audio devices. The remote's battery is read from the standard
+ * GATT Battery Service (0x180F / 0x2A19) over the link the stack already
+ * holds, with notifications for changes; the system battery broadcast is
+ * honoured too when it appears.
  */
 public final class BluetoothReader extends BroadcastReceiver {
+    private static final String TAG = "BraviaAgent";
     private static final String ACTION_BATTERY = "android.bluetooth.device.action.BATTERY_LEVEL_CHANGED";
     private static final String EXTRA_BATTERY = "android.bluetooth.device.extra.BATTERY_LEVEL";
-    private static final long RECHECK_MS = 60000;
+    private static final UUID BATTERY_SERVICE = UUID.fromString("0000180f-0000-1000-8000-00805f9b34fb");
+    private static final UUID BATTERY_LEVEL = UUID.fromString("00002a19-0000-1000-8000-00805f9b34fb");
+    private static final UUID CCCD = UUID.fromString("00002902-0000-1000-8000-00805f9b34fb");
+    private static final long POLL_MS = 60000;
+    private static final long BATTERY_READ_MS = 15 * 60000;
 
     private final Context context;
     private final StateStore store;
+    private final BluetoothManager manager;
     private final BluetoothAdapter adapter;
     private final Handler handler = new Handler(Looper.getMainLooper());
     private final Map<String, Integer> battery = new HashMap<>();
-    private final Map<String, Boolean> connected = new HashMap<>();
+    private BluetoothA2dp a2dp;
+    private BluetoothHeadset headset;
+    private BluetoothGatt gatt;
+    private String gattAddress;
+    private BluetoothGattCharacteristic level;
     private boolean registered;
-    private final Runnable recheck = new Runnable() {
+    private long lastBatteryRead;
+
+    private final Runnable poll = new Runnable() {
         @Override public void run() {
             recheckPermission();
-            handler.postDelayed(this, RECHECK_MS);
+            handler.postDelayed(this, POLL_MS);
         }
     };
 
     public BluetoothReader(Context context, StateStore store) {
         this.context = context.getApplicationContext();
         this.store = store;
-        BluetoothManager m = (BluetoothManager) context.getSystemService(Context.BLUETOOTH_SERVICE);
-        adapter = m == null ? null : m.getAdapter();
+        manager = (BluetoothManager) context.getSystemService(Context.BLUETOOTH_SERVICE);
+        adapter = manager == null ? null : manager.getAdapter();
     }
 
     public boolean isGranted() {
@@ -58,15 +85,22 @@ public final class BluetoothReader extends BroadcastReceiver {
     }
 
     public void start() {
-        handler.post(recheck);
+        handler.post(poll);
     }
 
     public void stop() {
-        handler.removeCallbacks(recheck);
+        handler.removeCallbacks(poll);
         if (registered) {
             try { context.unregisterReceiver(this); } catch (Exception ignored) { }
             registered = false;
         }
+        closeGatt();
+        try {
+            if (a2dp != null) adapter.closeProfileProxy(BluetoothProfile.A2DP, a2dp);
+            if (headset != null) adapter.closeProfileProxy(BluetoothProfile.HEADSET, headset);
+        } catch (Exception ignored) { }
+        a2dp = null;
+        headset = null;
     }
 
     public void recheckPermission() {
@@ -83,6 +117,23 @@ public final class BluetoothReader extends BroadcastReceiver {
             f.addAction(BluetoothAdapter.ACTION_STATE_CHANGED);
             context.registerReceiver(this, f);
             registered = true;
+            BluetoothProfile.ServiceListener sl = new BluetoothProfile.ServiceListener() {
+                @Override public void onServiceConnected(int profile, BluetoothProfile proxy) {
+                    if (profile == BluetoothProfile.A2DP) a2dp = (BluetoothA2dp) proxy;
+                    if (profile == BluetoothProfile.HEADSET) headset = (BluetoothHeadset) proxy;
+                    publish();
+                }
+                @Override public void onServiceDisconnected(int profile) {
+                    if (profile == BluetoothProfile.A2DP) a2dp = null;
+                    if (profile == BluetoothProfile.HEADSET) headset = null;
+                }
+            };
+            try {
+                adapter.getProfileProxy(context, sl, BluetoothProfile.A2DP);
+                adapter.getProfileProxy(context, sl, BluetoothProfile.HEADSET);
+            } catch (Exception e) {
+                Log.w(TAG, "profile proxies: " + e);
+            }
         }
         publish();
     }
@@ -91,20 +142,25 @@ public final class BluetoothReader extends BroadcastReceiver {
     public void onReceive(Context c, Intent intent) {
         String action = intent.getAction();
         BluetoothDevice d = intent.getParcelableExtra(BluetoothDevice.EXTRA_DEVICE, BluetoothDevice.class);
-        if (d != null && action != null) {
-            switch (action) {
-                case ACTION_BATTERY: {
-                    int level = intent.getIntExtra(EXTRA_BATTERY, -1);
-                    if (level >= 0) battery.put(d.getAddress(), level); else battery.remove(d.getAddress());
-                    connected.put(d.getAddress(), true);
-                    break;
-                }
-                case BluetoothDevice.ACTION_ACL_CONNECTED: connected.put(d.getAddress(), true); break;
-                case BluetoothDevice.ACTION_ACL_DISCONNECTED: connected.put(d.getAddress(), false); break;
-                default: break;
-            }
+        if (d != null && ACTION_BATTERY.equals(action)) {
+            int lvl = intent.getIntExtra(EXTRA_BATTERY, -1);
+            if (lvl >= 0) battery.put(d.getAddress(), lvl);
         }
-        publish();
+        // Let the stack settle before asking it who is connected.
+        handler.postDelayed(this::publish, 1500);
+    }
+
+    private boolean isConnected(BluetoothDevice d) {
+        try {
+            int type = d.getType();
+            if (type == BluetoothDevice.DEVICE_TYPE_LE || type == BluetoothDevice.DEVICE_TYPE_DUAL) {
+                if (manager.getConnectionState(d, BluetoothProfile.GATT) == BluetoothProfile.STATE_CONNECTED) return true;
+            }
+            if (a2dp != null && a2dp.getConnectionState(d) == BluetoothProfile.STATE_CONNECTED) return true;
+            if (headset != null && headset.getConnectionState(d) == BluetoothProfile.STATE_CONNECTED) return true;
+        } catch (Exception ignored) {
+        }
+        return false;
     }
 
     private void publish() {
@@ -114,32 +170,117 @@ public final class BluetoothReader extends BroadcastReceiver {
                 off.put("remote", JSONObject.NULL);
                 off.put("devices", new JSONArray());
                 store.update("bluetooth", off);
+                closeGatt();
                 return;
             }
             Set<BluetoothDevice> bonded = adapter.getBondedDevices();
             JSONObject remote = null;
+            BluetoothDevice remoteDevice = null;
             JSONArray devices = new JSONArray();
             for (BluetoothDevice d : bonded) {
                 String type = type(d);
+                boolean con = isConnected(d);
                 JSONObject o = new JSONObject();
                 String name = d.getName();
                 o.put("name", name == null ? JSONObject.NULL : name);
                 o.put("type", type);
-                Boolean con = connected.get(d.getAddress());
-                o.put("connected", con == null ? JSONObject.NULL : con);
+                o.put("connected", con);
                 Integer bat = battery.get(d.getAddress());
                 o.put("battery_pct", bat == null ? JSONObject.NULL : bat);
-                if (remote == null && "hid".equals(type)) remote = o; else devices.put(o);
+                if (remote == null && "hid".equals(type)) { remote = o; remoteDevice = d; } else devices.put(o);
             }
             JSONObject bt = new JSONObject();
             bt.put("remote", remote == null ? JSONObject.NULL : remote);
             bt.put("devices", devices);
             store.update("bluetooth", bt);
+            maintainBatteryLink(remoteDevice, remote != null && remote.getBoolean("connected"));
         } catch (SecurityException e) {
             store.update("bluetooth", null);
-        } catch (Exception ignored) {
+        } catch (Exception e) {
+            Log.w(TAG, "bluetooth publish: " + e);
         }
     }
+
+    /** Keep one GATT client on the remote while it is connected, read the level periodically. */
+    private void maintainBatteryLink(BluetoothDevice remote, boolean connected) {
+        if (remote == null || !connected) {
+            closeGatt();
+            return;
+        }
+        if (gatt != null && remote.getAddress().equals(gattAddress)) {
+            if (level != null && System.currentTimeMillis() - lastBatteryRead > BATTERY_READ_MS) {
+                lastBatteryRead = System.currentTimeMillis();
+                try { gatt.readCharacteristic(level); } catch (Exception ignored) { }
+            }
+            return;
+        }
+        closeGatt();
+        try {
+            gattAddress = remote.getAddress();
+            gatt = remote.connectGatt(context, false, gattCallback, BluetoothDevice.TRANSPORT_LE);
+        } catch (Exception e) {
+            Log.w(TAG, "connectGatt: " + e);
+            gatt = null;
+            gattAddress = null;
+        }
+    }
+
+    private void closeGatt() {
+        if (gatt != null) {
+            try { gatt.close(); } catch (Exception ignored) { }
+        }
+        gatt = null;
+        gattAddress = null;
+        level = null;
+    }
+
+    private final BluetoothGattCallback gattCallback = new BluetoothGattCallback() {
+        @Override public void onConnectionStateChange(BluetoothGatt g, int status, int newState) {
+            if (newState == BluetoothProfile.STATE_CONNECTED) {
+                try { g.discoverServices(); } catch (Exception ignored) { }
+            } else if (newState == BluetoothProfile.STATE_DISCONNECTED) {
+                handler.post(() -> { if (g == gatt) closeGatt(); publish(); });
+            }
+        }
+        @Override public void onServicesDiscovered(BluetoothGatt g, int status) {
+            BluetoothGattService s = g.getService(BATTERY_SERVICE);
+            BluetoothGattCharacteristic c = s == null ? null : s.getCharacteristic(BATTERY_LEVEL);
+            if (c == null) {
+                Log.i(TAG, "remote has no battery service");
+                return;
+            }
+            level = c;
+            lastBatteryRead = System.currentTimeMillis();
+            try {
+                g.setCharacteristicNotification(c, true);
+                BluetoothGattDescriptor cccd = c.getDescriptor(CCCD);
+                if (cccd != null) g.writeDescriptor(cccd, BluetoothGattDescriptor.ENABLE_NOTIFICATION_VALUE);
+            } catch (Exception ignored) { }
+            try { g.readCharacteristic(c); } catch (Exception ignored) { }
+        }
+        @Override public void onDescriptorWrite(BluetoothGatt g, BluetoothGattDescriptor d, int status) {
+            // A read queued behind the descriptor write would be dropped; issue it now.
+            if (level != null) { try { g.readCharacteristic(level); } catch (Exception ignored) { } }
+        }
+        @Override public void onCharacteristicRead(BluetoothGatt g, BluetoothGattCharacteristic c, byte[] value, int status) {
+            if (status == BluetoothGatt.GATT_SUCCESS) onLevel(g, value);
+        }
+        @Override public void onCharacteristicChanged(BluetoothGatt g, BluetoothGattCharacteristic c, byte[] value) {
+            onLevel(g, value);
+        }
+        private void onLevel(BluetoothGatt g, byte[] value) {
+            if (value == null || value.length == 0) return;
+            int pct = value[0] & 0xff;
+            String addr = g.getDevice().getAddress();
+            handler.post(() -> {
+                Integer old = battery.get(addr);
+                if (old == null || old != pct) {
+                    battery.put(addr, pct);
+                    publish();
+                }
+            });
+        }
+    };
 
     private static String type(BluetoothDevice d) {
         BluetoothClass bc = d.getBluetoothClass();

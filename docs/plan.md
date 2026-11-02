@@ -153,9 +153,9 @@ block, without which the Living Decor provider query returns a null cursor
 
 | Phase | Deliverable | Verifies |
 |---|---|---|
-| 0 | App skeleton: service, HTTP server, mDNS, `/v1/info`, lux + temperature in `/v1/state`, status screen | boot start, service longevity, that HA can reach the port |
-| 1 | Display block, media sessions (notification access), HDMI inputs, audio route | now-playing quality across YouTube / Netflix / Spotify; SSE |
-| 2 | Bluetooth (remote battery), Living Decor themes, Sony settings dump → chosen keys | provider stability across launcher versions |
+| 0 ✅ | App skeleton: service, HTTP server, mDNS, `/v1/info`, lux + temperature in `/v1/state`, status screen | boot start, service longevity, that HA can reach the port |
+| 1 ✅ | Display block, media sessions (notification access), HDMI inputs, audio route | now-playing quality across YouTube / Netflix / Spotify; SSE |
+| 2 ✅ | Bluetooth (remote battery), Living Decor themes, Sony settings dump → chosen keys | provider stability across launcher versions |
 | 3 | Bearer token, Wi-Fi block, hardening (reconnect, memory, doze on standby) | long-running stability over weeks |
 | HA | Integration support lands alongside phase 0 (discovery + lux/temperature) and grows with each phase | — |
 
@@ -183,6 +183,23 @@ block, without which the Living Decor provider query returns a null cursor
   settings keys, the Living Decor theme list (needs a `<queries>` entry for
   the provider under Android 11+ package visibility).
 
+## Phase 1–2 findings (2026-11-02)
+
+- Media sessions: `MediaSessionManager.getActiveSessions` works once the
+  agent's (empty) `NotificationListenerService` is granted Notification
+  access; `cmd notification allow_listener <pkg>/.MediaListenerService` grants
+  it from adb. YouTube TV reports title, artist (channel), duration, position
+  and 512 px artwork. Leaving the app drops the session within seconds.
+- Bluetooth: the SDK has no public battery or `isConnected` API. Connection
+  state: `BluetoothManager.getConnectionState(device, GATT)` is system-wide for
+  LE devices (the remote, "SONY TV VRC 001"), A2DP/Headset proxies for
+  classic audio. Battery: the remote exposes the standard GATT Battery
+  Service; a second GATT client over the stack's existing LE link reads
+  0x2A19 fine (30 % on first read) and can subscribe to notifications. The
+  `BATTERY_LEVEL_CHANGED` broadcast is kept as a bonus source.
+- Both permissions are reported in `/v1/info.permissions`; the status screen
+  requests BLUETOOTH_CONNECT on launch and opens Notification access on OK.
+
 ## Open questions
 
 - Does the HTTP server keep its port after a Wi-Fi drop or IP change, and does
@@ -191,10 +208,6 @@ block, without which the Living Decor provider query returns a null cursor
 - Does the Living Decor provider also list downloaded/seasonal themes, and do
   the ids stay stable across Living Decor updates?
 - Which Sony settings keys are writable from a normal app, if any?
-- Media session artwork: is the bitmap available to a listener, and is it worth
-  serving over the agent's HTTP as an image?
-- Bluetooth battery for the remote: `BATTERY` profile metadata vs
-  `BluetoothDevice.getBatteryLevel` (hidden API) — test on the real remote.
 - Should the integration ever create entities from the agent when the gRPC
   pairing is absent? Proposal: no; the agent is an add-on to a paired TV.
 

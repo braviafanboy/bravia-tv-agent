@@ -21,7 +21,7 @@ are JSON numbers; enums are lower-case strings.
     "bluetooth_connect": false,
     "usage_access": false
   },
-  "endpoints": ["/v1/state", "/v1/events", "/v1/themes"]
+  "endpoints": ["/v1/state", "/v1/events", "/v1/themes", "/v1/media/artwork"]
 }
 ```
 
@@ -62,9 +62,9 @@ are JSON numbers; enums are lower-case strings.
     "muted": false
   },
   "bluetooth": {
-    "remote": {"name": "BRAVIA remote", "battery_pct": 72, "connected": true},
+    "remote": {"name": "SONY TV VRC 001", "type": "hid", "connected": true, "battery_pct": 72},
     "devices": [
-      {"name": "Bluetooth headphones", "type": "a2dp", "connected": false}
+      {"name": "Bluetooth headphones", "type": "audio", "connected": false, "battery_pct": null}
     ]
   },
   "wifi": {"rssi_dbm": -63, "link_mbps": 648},
@@ -77,6 +77,18 @@ are JSON numbers; enums are lower-case strings.
 
 Field notes:
 
+- `media` is `null` until Notification access is granted to the agent
+  (Settings → Apps → Special app access → Notification access, or press OK on
+  the agent's status screen). With access, the block is always present:
+  `state` is `none` and `active` false when no app holds a media session.
+  `position_s` is extrapolated from the session's last update and refreshed
+  every 10 s while playing; `artwork_url` is set only while a PNG is available
+  from `GET /v1/media/artwork` (404 otherwise, max 512 px).
+- `bluetooth` is `null` until BLUETOOTH_CONNECT is granted (the status screen
+  asks on launch). `remote` is the first bonded HID device; `connected` comes
+  from the system GATT / A2DP / Headset connection lists; `battery_pct` for
+  the remote is read from its GATT Battery Service every 15 min and on change,
+  `null` until the first read or for devices without the service.
 - `display.on` is the panel state (`Display.STATE_ON`); it is false during
   Picture Off and standby. `hdr` is one of `none`, `hdr10`, `hlg`,
   `dolby_vision`, `hdr10_plus` when a mode reports an active HDR type, else
