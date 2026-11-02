@@ -34,13 +34,28 @@ the integration's own discovery or pairing.
 | Wi-Fi RSSI, link speed | `WifiManager.getConnectionInfo` | none for RSSI; location for SSID (not needed) | none |
 | Foreground app (optional) | `UsageStatsManager` | usage access | enable once; duplicates gRPC, phase 3 at most |
 
-First engineering task, before any entity work: **dump the Sony settings
-provider once** from the app and record which keys exist and change, since
-the adb shell cannot read it and the key list so far comes from the
-provider's default config. Candidate keys: `power.power_saving`,
-`power.idle_tv_standby.duration`, `power.auto_shut_off`,
-`network.remotestart`, `audio.speakers`, `braviasync.*`, `led.*`,
-`parental.*`, `shop.demomode`, `vendorprotocol.ssip`.
+**Settings dump: done (2026-11-02, `tools/settings-dump`).** The `global`
+table has 51 keys, `system` one, `secure_global` is refused. Keys worth
+reporting, with the values seen: `power.power_saving` (`-2`),
+`power.idle_tv_standby.duration` (`0`), `power.auto_shut_off` (`0`),
+`network.remotestart` (`invalid` here — the energy-mode gate had not
+written it), `braviasync.cec` / `.autodevicesoff` / `.autotvon` /
+`.devicekeycontrol` / `.remotecontrol` (`1`/`0`), `led.voice_led_enabled`,
+`led.operational_response`, `parental.apprestriction`,
+`parental.timerestriction` (+ `.repeat`, `.timeslot`, `.usagetimelimit`),
+`shop.demomode`, `vendorprotocol.ssip` / `.sddp`, `auto_swupdate`,
+`timers.clock_display`, `audio.bt_video_delay`,
+`content_mode.hdmi_info_sync` (JSON per HDMI port). `audio.speakers` read
+`tv_speakers` while the soundbar was the active output, so it is a stored
+preference, not the live route — do not surface it as such. Whether any key
+is writable from a normal app is still untested. Full dump in the research
+repo.
+
+Manifest requirements learned from the probe: `uses-permission` for
+`com.sony.dtv.settingsprovider.permission.READ_SETTINGS`, and a
+`<queries><provider android:authorities="com.sony.dtv.livingfit"/></queries>`
+block, without which the Living Decor provider query returns a null cursor
+(Android 11+ package visibility).
 
 ## Design
 

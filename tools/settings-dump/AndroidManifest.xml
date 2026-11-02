@@ -9,6 +9,12 @@
          is requested only to confirm it is refused. -->
     <uses-permission android:name="com.sony.dtv.settingsprovider.permission.READ_SETTINGS" />
     <uses-permission android:name="com.sony.dtv.settingsprovider.permission.READ_SECURE_SETTINGS" />
+    <!-- Android 11+ package visibility: without this the resolver returns a
+         null cursor for Living Decor's provider (it defines no permission that
+         would grant visibility implicitly). -->
+    <queries>
+        <provider android:authorities="com.sony.dtv.livingfit" />
+    </queries>
     <application android:label="Settings dump" android:banner="@android:drawable/sym_def_app_icon">
         <activity android:name=".DumpActivity" android:exported="true">
             <intent-filter>
