@@ -1,0 +1,61 @@
+# BRAVIA TV agent
+
+A small Android TV app that runs on a Sony BRAVIA and reports what the TV
+cannot expose over its local gRPC control plane or the Sony cloud, to the
+[bravia-tv-grpc-homeassistant](https://github.com/braviafanboy/bravia-tv-grpc-homeassistant)
+integration. It has no purpose on its own: the integration defines the
+contract, discovers the agent on the LAN, and turns its data into entities.
+
+**Status: planning.** No app code yet. See [`docs/plan.md`](docs/plan.md) for
+the design and roadmap and [`docs/contract.md`](docs/contract.md) for the
+JSON the integration will consume.
+
+## What it adds
+
+Verified readable on a BRAVIA 8 II (K-65XR8M2, firmware 114.603) without any
+privileged permission:
+
+| Data | Why the integration cannot get it otherwise |
+|---|---|
+| Ambient light (lux) and ambient temperature | Android sensors; no gRPC, cloud or REST path |
+| Now playing: app, title, artist, playback state, position, duration | Media sessions; the cloud `playback` state is a bare enum with no metadata |
+| Panel on/off, active mode, refresh rate, HDR format, brightness level | DisplayManager; covers Picture Off and standby in one signal |
+| Remote-control battery level | The bundled remote is a Bluetooth HID device with the battery profile |
+| HDMI input connection changes | TvInputManager callbacks; gRPC only has this by polling |
+| Audio route and per-stream volumes | AudioManager |
+| Living Decor theme list | The app's content provider; the TV never lists themes to the cloud, and the integration's `play_media` theme type needs the ids |
+| Selected Sony global settings (power saving, idle standby, auto shut-off, remote start, BRAVIA Sync options, LED behaviour, parental restrictions) | Sony's settings provider; its read permission is normal-level |
+| Wi-Fi signal strength and link speed | WifiManager |
+
+What it cannot do, so nobody has to re-research it: read any DeviceControlService
+trait (signature-protected: remote finder, parental control timers, voice
+search results), read the sleep timer (cloud-only), or make the TV upload its
+cloud state.
+
+## How it fits
+
+```
+TV (Android)                         Home Assistant
+┌──────────────────────┐             ┌──────────────────────────────┐
+│ agent app            │  mDNS +     │ bravia_tv_grpc integration   │
+│  sensors, sessions,  │  HTTP/JSON  │  existing gRPC + cloud paths │
+│  display, providers  │ ───────────▶│  + agent entities            │
+└──────────────────────┘             └──────────────────────────────┘
+```
+
+- One foreground service on the TV serving a JSON document over plain HTTP on
+  the LAN, advertised with mDNS; optional event stream for low-latency updates.
+- The integration finds it automatically (mDNS, or a probe of the TV's known
+  address), no second config entry.
+- The contract is versioned on the integration side; the integration tolerates
+  an older or missing agent by creating fewer entities, never by erroring.
+
+## Install (eventual)
+
+Sideloaded APK: `adb install` or any sideloading tool on the TV, then grant
+Notification access (for now-playing) and Bluetooth (for the remote's battery)
+when the app asks. Not distributed through Google Play.
+
+## License
+
+MIT, same as the integration.
