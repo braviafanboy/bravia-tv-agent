@@ -21,9 +21,29 @@ are JSON numbers; enums are lower-case strings.
     "bluetooth_connect": false,
     "usage_access": false
   },
-  "endpoints": ["/v1/state", "/v1/events", "/v1/themes", "/v1/media/artwork"]
+  "endpoints": ["/v1/state", "/v1/events", "/v1/themes", "/v1/media/artwork"],
+  "pairing": {"paired": true, "paired_with": "Home Assistant", "window_open": false, "window_seconds_left": 0}
 }
 ```
+
+
+## Authentication
+
+Unpaired (fresh install), every endpoint answers any LAN client. Once a
+token exists, every request except `GET /v1/info` and `POST /v1/pair` must
+carry `Authorization: Bearer <token>`; otherwise 401 `{"error":"unauthorized"}`.
+
+- `POST /v1/pair?name=<client>` → `{"token": "<64 hex>"}` while the pairing
+  window is open, else 403 `{"error":"pairing_closed"}`. The window lasts 60 s
+  and opens when the status screen is launched by one of Sony's control
+  services (the integration's local gRPC app launch; referrer
+  `android-app://com.sony.dtv.devicecontrolservice`) or when the user presses
+  RIGHT on it. Pairing closes the window and replaces any earlier token.
+- Cloud delivery: launching the deep link `braviaagent://pair?token=<t>&name=<n>`
+  (cloud `application.deep_link`) stores `<t>` directly, no window.
+- `GET /v1/info.pairing` = `{"paired", "paired_with", "window_open",
+  "window_seconds_left"}`; the mDNS TXT carries `p=0|1`.
+- Holding LEFT on the status screen clears the token.
 
 ## `GET /v1/state`
 

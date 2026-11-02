@@ -6,15 +6,17 @@ cannot expose over its local gRPC control plane or the Sony cloud, to the
 integration. It has no purpose on its own: the integration defines the
 contract, discovers the agent on the LAN, and turns its data into entities.
 
-**Status: phases 0–2 running on a BRAVIA 8 II** (2026-11-02): foreground
+**Status: phases 0–3 running on a BRAVIA 8 II** (2026-11-02): foreground
 service, HTTP server on port 8585 with `/v1/info`, `/v1/state`, `/v1/themes`,
 `/v1/media/artwork` and the `/v1/events` stream, mDNS advert
 `_bravia-agent._tcp`, readers for environment, display, HDMI inputs, audio,
 Wi-Fi, the Sony settings keys, media sessions (now-playing with position and
 artwork, after Notification access) and Bluetooth (remote connection and
 battery over GATT, after BLUETOOTH_CONNECT), boot and reinstall start, crash
-restart and a status screen; survives the TV's standby/wake cycle. No pairing
-or bearer token yet.
+restart and a status screen; survives the TV's standby/wake cycle. Bearer-token
+pairing through a 60 s window (opened by the integration's app launch or from
+the status screen) or by token delivery over the Sony cloud deep link.
+Integration-side support is the next step.
 Built with `app/build.sh` (SDK tools only, no Gradle). See
 [`docs/plan.md`](docs/plan.md) for the design and roadmap and
 [`docs/contract.md`](docs/contract.md) for the JSON the integration consumes.

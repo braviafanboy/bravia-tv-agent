@@ -43,12 +43,39 @@ public final class StatusActivity extends Activity {
         if (checkSelfPermission("android.permission.BLUETOOTH_CONNECT") != PackageManager.PERMISSION_GRANTED) {
             requestPermissions(new String[] {"android.permission.BLUETOOTH_CONNECT"}, 1);
         }
-        Uri referrer = getReferrer();
-        if (referrer != null) {
-            // The pairing design keys off this: a launch through DeviceControlService
-            // (the integration's gRPC app-launch) has a system referrer, not the launcher.
-            android.util.Log.i("BraviaAgent", "launched with referrer " + referrer);
-        }
+        handleLaunch(getIntent(), getReferrer());
+    }
+
+    @Override
+    protected void onNewIntent(Intent intent) {
+        super.onNewIntent(intent);
+        setIntent(intent);
+        handleLaunch(intent, getReferrer());
+    }
+
+    /**
+     * Pairing entry points. A deep link {@code braviaagent://pair?token=...}
+     * (delivered by the integration through the Sony cloud) adopts the token
+     * outright. A launch by one of Sony's control services (the integration's
+     * local gRPC app launch; the referrer is then a com.sony.* package, not the
+     * launcher or the shell) opens the 60 s pairing window.
+     */
+    private void handleLaunch(Intent intent, Uri referrer) {
+        android.util.Log.i("BraviaAgent", "launched with referrer " + referrer + " data " + (intent == null ? null : intent.getData()));
+        // Wait for the service to exist, then act.
+        handler.postDelayed(() -> {
+            AgentService svc = AgentService.instance();
+            if (svc == null) return;
+            Uri data = intent == null ? null : intent.getData();
+            if (data != null && "braviaagent".equals(data.getScheme()) && "pair".equals(data.getHost())) {
+                String token = data.getQueryParameter("token");
+                String name = data.getQueryParameter("name");
+                if (token != null) svc.pairing().adopt(token, name == null ? "deep_link" : name);
+                return;
+            }
+            String host = referrer == null ? null : referrer.getHost();
+            if (host != null && host.startsWith("com.sony.")) svc.pairing().openWindow();
+        }, 300);
     }
 
     @Override
@@ -60,6 +87,17 @@ public final class StatusActivity extends Activity {
     /** OK / Select opens the Notification access screen for the media reader. */
     @Override
     public boolean onKeyDown(int keyCode, KeyEvent event) {
+        AgentService svc = AgentService.instance();
+        if (keyCode == KeyEvent.KEYCODE_DPAD_RIGHT && svc != null) {
+            svc.pairing().openWindow();
+            render();
+            return true;
+        }
+        if (keyCode == KeyEvent.KEYCODE_DPAD_LEFT && svc != null && event.getRepeatCount() == 0 && event.isLongPress()) {
+            svc.pairing().clear();
+            render();
+            return true;
+        }
         if (keyCode == KeyEvent.KEYCODE_DPAD_CENTER || keyCode == KeyEvent.KEYCODE_ENTER) {
             try {
                 startActivity(new Intent(Settings.ACTION_NOTIFICATION_LISTENER_SETTINGS));
@@ -88,7 +126,7 @@ public final class StatusActivity extends Activity {
         StringBuilder sb = new StringBuilder();
         sb.append("BRAVIA agent ").append(AgentService.VERSION)
           .append("  —  http://<tv>:").append(AgentService.PORT).append("/v1/state\n")
-          .append("Press OK to open Notification access (needed for now-playing).\n\n");
+          .append("OK: Notification access (now-playing)   RIGHT: open pairing window   hold LEFT: unpair\n\n");
         if (svc == null) {
             sb.append("service starting…");
         } else {

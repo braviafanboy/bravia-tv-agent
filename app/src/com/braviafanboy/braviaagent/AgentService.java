@@ -45,6 +45,7 @@ public final class AgentService extends Service implements HttpServer.InfoProvid
     private StateStore store;
     private HttpServer server;
     private DeviceIdentity identity;
+    private Pairing pairing;
     private EnvironmentReader environment;
     private DisplayReader display;
     private InputsReader inputs;
@@ -57,6 +58,7 @@ public final class AgentService extends Service implements HttpServer.InfoProvid
     private NsdManager nsd;
     private NsdManager.RegistrationListener registration;
     private String registeredId;
+    private boolean registeredPaired;
     private boolean foreground;
 
     public static AgentService instance() {
@@ -75,6 +77,8 @@ public final class AgentService extends Service implements HttpServer.InfoProvid
         foreground = promoteToForeground();
         store = new StateStore();
         identity = new DeviceIdentity(this);
+        pairing = new Pairing(this);
+        pairing.setListener(() -> new android.os.Handler(getMainLooper()).post(this::registerMdns));
         identity.setCallback(id -> new android.os.Handler(getMainLooper()).post(this::registerMdns));
         themes = new ThemesReader(this);
         environment = new EnvironmentReader(this, store);
@@ -94,7 +98,7 @@ public final class AgentService extends Service implements HttpServer.InfoProvid
         wifi.start();
         settings.start();
         identity.start();
-        server = new HttpServer(PORT, store, themes, this, media);
+        server = new HttpServer(PORT, store, themes, this, media, pairing);
         try {
             server.start(HttpServer.SOCKET_READ_TIMEOUT, false);
             Log.i(TAG, "http server on :" + PORT);
@@ -110,7 +114,7 @@ public final class AgentService extends Service implements HttpServer.InfoProvid
         // Re-register mDNS if the device id became known since we registered.
         if (!foreground) foreground = promoteToForeground();
         String id = identity.deviceUniqueId();
-        if (id != null && !id.equals(registeredId)) registerMdns();
+        if ((id != null && !id.equals(registeredId)) || pairing.isPaired() != registeredPaired) registerMdns();
         return START_STICKY;
     }
 
@@ -138,6 +142,10 @@ public final class AgentService extends Service implements HttpServer.InfoProvid
 
     public StateStore store() {
         return store;
+    }
+
+    public Pairing pairing() {
+        return pairing;
     }
 
     /** Notification access or a runtime permission may have changed. */
@@ -170,6 +178,12 @@ public final class AgentService extends Service implements HttpServer.InfoProvid
             perms.put("bluetooth_connect", bluetooth.isGranted());
             perms.put("usage_access", false);
             o.put("permissions", perms);
+            JSONObject pair = new JSONObject();
+            pair.put("paired", pairing.isPaired());
+            pair.put("paired_with", pairing.isPaired() ? pairing.pairedName() : JSONObject.NULL);
+            pair.put("window_open", pairing.windowOpen());
+            pair.put("window_seconds_left", pairing.windowSecondsLeft());
+            o.put("pairing", pair);
             o.put("endpoints", new JSONArray(Arrays.asList("/v1/state", "/v1/events", "/v1/themes", MediaReader.ARTWORK_PATH)));
         } catch (Exception ignored) {
         }
@@ -201,9 +215,11 @@ public final class AgentService extends Service implements HttpServer.InfoProvid
         info.setServiceType(SERVICE_TYPE);
         info.setPort(PORT);
         info.setAttribute("v", String.valueOf(HttpServer.CONTRACT));
+        info.setAttribute("p", pairing.isPaired() ? "1" : "0");
         String id = identity.deviceUniqueId();
         if (id != null) info.setAttribute("id", id);
         registeredId = id;
+        registeredPaired = pairing.isPaired();
         registration = new NsdManager.RegistrationListener() {
             @Override public void onRegistrationFailed(NsdServiceInfo i, int e) { Log.w(TAG, "mdns registration failed " + e); }
             @Override public void onUnregistrationFailed(NsdServiceInfo i, int e) { }

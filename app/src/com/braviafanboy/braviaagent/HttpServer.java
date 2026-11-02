@@ -30,25 +30,33 @@ public final class HttpServer extends NanoHTTPD {
     private final ThemesReader themes;
     private final InfoProvider info;
     private final MediaReader media;
+    private final Pairing pairing;
 
     public interface InfoProvider {
         JSONObject info();
     }
 
-    public HttpServer(int port, StateStore store, ThemesReader themes, InfoProvider info, MediaReader media) {
+    public HttpServer(int port, StateStore store, ThemesReader themes, InfoProvider info, MediaReader media, Pairing pairing) {
         super(port);
         this.store = store;
         this.themes = themes;
         this.info = info;
         this.media = media;
+        this.pairing = pairing;
     }
 
     @Override
     public Response serve(IHTTPSession session) {
         String path = session.getUri();
+        if ("/v1/pair".equals(path)) return pair(session);
         if (session.getMethod() != Method.GET) return error(Response.Status.METHOD_NOT_ALLOWED, "method_not_allowed");
+        if ("/v1/info".equals(path) || "/".equals(path)) return json(info.info());
+        if (!pairing.authorized(session.getHeaders().get("authorization"))) {
+            Response r = error(Response.Status.UNAUTHORIZED, "unauthorized");
+            r.addHeader("WWW-Authenticate", "Bearer realm=\"bravia-agent\"");
+            return r;
+        }
         switch (path) {
-            case "/v1/info": return json(info.info());
             case "/v1/state": return json(store.snapshot());
             case "/v1/themes": {
                 JSONObject o = new JSONObject();
@@ -63,9 +71,21 @@ public final class HttpServer extends NanoHTTPD {
                 r.addHeader("Cache-Control", "no-store");
                 return r;
             }
-            case "/": return json(info.info());
             default: return error(Response.Status.NOT_FOUND, "not_found");
         }
+    }
+
+    /** POST /v1/pair?name=<client>: mint a token while the pairing window is open. */
+    private Response pair(IHTTPSession session) {
+        if (session.getMethod() != Method.POST) return error(Response.Status.METHOD_NOT_ALLOWED, "method_not_allowed");
+        java.util.List<String> names = session.getParameters().get("name");
+        String name = names == null || names.isEmpty() ? "unknown" : names.get(0);
+        String token = pairing.pair(name);
+        if (token == null) return error(Response.Status.FORBIDDEN, "pairing_closed");
+        JSONObject o = new JSONObject();
+        try { o.put("token", token); } catch (Exception ignored) { }
+        log("paired " + name + " from " + session.getRemoteIpAddress());
+        return json(o);
     }
 
     private Response json(JSONObject o) {

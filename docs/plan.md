@@ -156,7 +156,7 @@ block, without which the Living Decor provider query returns a null cursor
 | 0 ✅ | App skeleton: service, HTTP server, mDNS, `/v1/info`, lux + temperature in `/v1/state`, status screen | boot start, service longevity, that HA can reach the port |
 | 1 ✅ | Display block, media sessions (notification access), HDMI inputs, audio route | now-playing quality across YouTube / Netflix / Spotify; SSE |
 | 2 ✅ | Bluetooth (remote battery), Living Decor themes, Sony settings dump → chosen keys | provider stability across launcher versions |
-| 3 | Bearer token, Wi-Fi block, hardening (reconnect, memory, doze on standby) | long-running stability over weeks |
+| 3 ✅ (soak pending) | Bearer token, Wi-Fi block, hardening (reconnect, memory, doze on standby) | long-running stability over weeks |
 | HA | Integration support lands alongside phase 0 (discovery + lux/temperature) and grows with each phase | — |
 
 ## Phase 0 findings (2026-11-02, BRAVIA 8 II, Android 14)
@@ -199,6 +199,24 @@ block, without which the Living Decor provider query returns a null cursor
   `BATTERY_LEVEL_CHANGED` broadcast is kept as a bonus source.
 - Both permissions are reported in `/v1/info.permissions`; the status screen
   requests BLUETOOTH_CONNECT on launch and opens Notification access on OK.
+
+## Phase 3 findings (2026-11-02)
+
+- Verified live: unpaired → open; `POST /v1/pair` outside the window → 403;
+  RIGHT on the status screen opens the window (`info.pairing.window_open`,
+  59 s); pairing returns a 64-hex token; afterwards no header / wrong token →
+  401, right token → 200 on `/v1/state` and `/v1/events`, `/v1/info` stays
+  public, a second pair → 403; mDNS TXT gains `p=1`.
+- Cloud delivery verified: `application.deep_link` with
+  `braviaagent://pair?token=…&name=ha-cloud` launches the status screen with
+  referrer `android-app://com.sony.dtv.devicecontrolservice` and the token is
+  adopted; the previous token stops working at once.
+- The same referrer is what a local gRPC `system_setting.application` launch
+  produces (both go through DeviceControlService), so the window rule is
+  "referrer host starts with `com.sony.`".
+- Cloud `application set <package>` is validated against the TV's advertised
+  app enum, which did not yet include the agent (the TV refreshes that list on
+  its own schedule); the deep link has no such check.
 
 ## Open questions
 
