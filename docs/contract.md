@@ -253,8 +253,9 @@ Bearer. Normal authentication with the TV's REST API, in two steps:
 
 1. Without parameters: the TV shows a registration PIN on screen. Answers
    `{"status": "pin_shown"}`. (`{"status": "registered"}` if the TV asks for
-   no authentication; 409 `normal_auth_not_supported` when the TV's
-   IP-control authentication setting does not include Normal; 503
+   no authentication; 409 `normal_auth_not_supported` when the TV refuses
+   Normal authentication, which **every non-Japanese set does** (the TV's PIN
+   service is Japan-only); use `POST /v1/rest/psk` there. 503
    `rest_unavailable`.)
 2. `?pin=NNNN` with the PIN from the screen: answers
    `{"status": "registered"}` and stores the session cookie (replacing any

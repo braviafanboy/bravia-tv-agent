@@ -158,7 +158,7 @@ block, without which the Living Decor provider query returns a null cursor
 | 2 ✅ | Bluetooth (remote battery), Living Decor themes, Sony settings dump → chosen keys | provider stability across launcher versions |
 | 3 ✅ (soak pending) | Bearer token, Wi-Fi block, hardening (reconnect, memory, doze on standby) | long-running stability over weeks |
 | HA ✅ (unit-tested; live VM check pending) | Integration support: probe on the TV's host, pairing (cloud deep link / local launch), SSE, sensors, now-playing, theme select — commit in bravia-tv-grpc-homeassistant main | — |
-| R1 ✅ · R2 ✅ except PIN test (0.3.0, local) · R3 planned | REST picture channel: agent-relayed reads (no auth), Normal-auth PIN registration, writes, integration entities — see *REST picture channel plan* | reads on the live TV; PIN flow with the user present; CPU unchanged |
+| R1 ✅ · R2 ✅ (0.3.0, local; Normal auth Japan-only) · R3 planned | REST picture channel: agent-relayed reads (no auth), Normal-auth PIN registration, writes, integration entities — see *REST picture channel plan* | reads on the live TV; PIN flow with the user present; CPU unchanged |
 
 ## Phase 0 findings (2026-11-02, BRAVIA 8 II, Android 14)
 
@@ -341,12 +341,15 @@ Design rationale and every verified fact behind it: `bravia-research/docs/rest-i
 - Verified with the pre-shared key over HTTP: no credential → `rest_unauthorized`; key verified; no-op writes (contrast 90 → 90, power saving off → off) accepted and `write_authorized` turned true; wrong key → verification false and writes refused; validation refused out-of-range, unknown and unavailable targets (`autoLuminanceLevel` while the master switch is off) and an invalid power-saving mode. The stored credential survives `adb install -r`. No secret appears in logcat. Key forgotten afterwards.
 - Measured webapi cost: 60 s, no watch → 22 ticks / 120 s (0.18% of a core, two full reads as predicted); 10 s watching two targets → 28 ticks / 120 s (0.23%), so each watched target at 10 s adds ~0.025%, cheaper than estimated.
 - Home Assistant (integration 0.3.0) unaffected: agent online, 11 endpoints, sensors updating.
-- **Still to do with the user at the TV:** Normal-auth registration (`rest register` shows the PIN, `rest pin NNNN`), the cookie's Max-Age, `rest renew`, one visible write and restore; the TV's IP-control Authentication should be *Normal and Pre-Shared Key*. Not exercised: the HDR trigger (needs HDR content), HTTPS mode with this build (the TV is in HTTP mode).
+- **PIN session with the user (2026-11-03):** no PIN appeared. The TV's PIN service (`com.sony.dtv.seconddispsetting`, `DeviceRegisterManager.startActRegister`) rejects every non-Japanese set up front (`!ProductInfo.isJpRegion()` → `REQUEST_TIMEOUT`, which the service cannot map, so the API answers `[1, "Internal Server Error"]`). **Normal auth is Japan-only; outside Japan the pre-shared key is the write credential.** The agent already reports this as 409 `normal_auth_not_supported`. The cookie code stays for Japanese sets but cannot be tested here.
+- Visible write with the user watching, using the PSK: contrast 90 → 91 confirmed by the agent's re-read and by the TV, then restored to 90. Key forgotten afterwards.
+- Not exercised: the HDR trigger (needs HDR content), HTTPS mode with this build (the TV is in HTTP mode), Normal auth (needs a Japanese set).
 
 ### R3 — integration
 
 - **Client** (`grpc/agent.py`): register begin/complete, forget, set PSK, set picture target, refresh, set power saving.
 - **Entities**, generated from candidates: numeric range → `number`, value list → `select`, on/off pair → `switch`. `brightness` and `pictureMode` are excluded (gRPC owns them, with push). Enabled by default: the four Ambient Optimisation switches, contrast, colour, sharpness, colour temperature, local dimming, peak luminance, Motionflow, Reality Creation. Everything else disabled by default, entity category *config*. Unavailable when the target reports `isAvailable=false` or REST is unavailable. Power saving mode as a `select`.
+- **Credential flow (changed by the Japan-only finding):** the `rest_authorize` fix flow asks for the **pre-shared key** set on the TV (with the menu path: Settings → Network → Home network → IP control → Authentication → Normal and Pre-Shared Key, then Pre-Shared Key), sends it to the agent with `POST /v1/rest/psk`, and shows whether it verified. The PIN steps are offered only when `POST /v1/rest/register` answers `pin_shown` (Japanese sets). Decision for R3: Home Assistant keeps the PSK in the config entry so it can re-send it after an agent uninstall, or it does not and the repair asks again.
 - **Writes before authorisation** raise a translated error pointing at the repair below.
 - **Repairs:** `rest_unavailable` (IP control off or unreachable, with the menu path) and `rest_authorize` with a fix flow: *Start* → agent begins → form "Enter the PIN shown on the TV" → complete.
 - **Refresh trigger:** picture values are per picture mode, so the coordinator asks the agent to refresh (debounced 1 s) when gRPC push reports a change of picture mode, input or content mode.
