@@ -63,7 +63,7 @@ public final class Tls {
             kpg.initialize(new KeyGenParameterSpec.Builder(ALIAS, KeyProperties.PURPOSE_SIGN | KeyProperties.PURPOSE_VERIFY)
                 .setAlgorithmParameterSpec(new java.security.spec.ECGenParameterSpec("secp256r1"))
                 .setDigests(KeyProperties.DIGEST_NONE, KeyProperties.DIGEST_SHA256, KeyProperties.DIGEST_SHA384, KeyProperties.DIGEST_SHA512)
-                .setCertificateSubject(new X500Principal("CN=BRAVIA agent"))
+                .setCertificateSubject(new X500Principal("CN=HA TV Agent"))
                 .setCertificateSerialNumber(BigInteger.valueOf(System.currentTimeMillis()))
                 .setCertificateNotBefore(start.getTime())
                 .setCertificateNotAfter(end.getTime())

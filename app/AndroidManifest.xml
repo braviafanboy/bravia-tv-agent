@@ -31,7 +31,7 @@
     </queries>
 
     <application
-        android:label="BRAVIA agent"
+        android:label="HA TV Agent"
         android:banner="@android:drawable/sym_def_app_icon"
         android:icon="@android:drawable/sym_def_app_icon"
         android:allowBackup="false"

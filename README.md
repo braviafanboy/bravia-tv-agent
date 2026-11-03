@@ -1,4 +1,6 @@
-# BRAVIA TV agent
+# HA TV Agent
+
+*Unofficial helper for the Bravia TV (gRPC) Home Assistant integration. Not affiliated with Sony or Home Assistant.*
 
 A small Android TV app that runs on a Sony BRAVIA and reports what the TV
 cannot expose over its local gRPC control plane or the Sony cloud, to the

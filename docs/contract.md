@@ -34,7 +34,7 @@ are JSON numbers; enums are lower-case strings.
 
 The agent serves **HTTPS only** (port 8585) with a self-signed EC P-256
 certificate generated in the Android keystore on first run (25-year validity,
-`CN=BRAVIA agent`). Clients do not validate the name or chain; they **pin the
+`CN=HA TV Agent`; installs from before 0.3.0 keep their original `CN=BRAVIA agent` certificate). Clients do not validate the name or chain; they **pin the
 certificate's SHA-256 fingerprint**, which the handshake exposes and
 `GET /v1/info.tls.fingerprint_sha256` repeats. The integration learns the
 fingerprint during pairing and pins it on every later connection; a

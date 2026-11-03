@@ -35,6 +35,8 @@ public final class StatusActivity extends Activity {
     private static final int OK_COLOR = 0xFF7BD88F;
     private static final int TODO_COLOR = 0xFFFFC66D;
     private static final int DIM_COLOR = 0xFF9A9A9A;
+    static final String DISCLAIMER =
+        "Unofficial helper for the Bravia TV (gRPC) integration · not affiliated with Sony or Home Assistant";
 
     private final Handler handler = new Handler(Looper.getMainLooper());
     private LinearLayout rows;
@@ -77,14 +79,14 @@ public final class StatusActivity extends Activity {
                 AgentService svc = AgentService.instance();
                 if (svc != null) svc.pairing().openWindow();
             }, 300);
-            android.widget.Toast.makeText(this, "Home Assistant is pairing with the BRAVIA agent", android.widget.Toast.LENGTH_LONG).show();
+            android.widget.Toast.makeText(this, "Home Assistant is pairing with the HA TV Agent", android.widget.Toast.LENGTH_LONG).show();
             finish();
             return;
         }
         setupFlow = setupLink;
         if (setupFlow && allGranted()) {
             // Nothing to grant: say so and get out of the way.
-            toast("BRAVIA agent is set up");
+            toast("HA TV Agent is set up");
             finish();
             return;
         }
@@ -154,7 +156,7 @@ public final class StatusActivity extends Activity {
     private void advance() {
         if (nextGrant()) return;
         setupFlow = false;
-        toast(allGranted() ? "BRAVIA agent is set up" : "BRAVIA agent: some permissions were not granted");
+        toast(allGranted() ? "HA TV Agent is set up" : "HA TV Agent: some permissions were not granted");
         finish();
     }
 
@@ -246,10 +248,11 @@ public final class StatusActivity extends Activity {
         root.setBackgroundColor(Color.BLACK);
         root.setPadding(pad, dp(40), pad, dp(32));
 
-        TextView title = label("BRAVIA agent", 30, Color.WHITE);
+        TextView title = label("HA TV Agent", 30, Color.WHITE);
         title.setTypeface(android.graphics.Typeface.DEFAULT_BOLD);
         root.addView(title);
         root.addView(label("Version " + AgentService.VERSION, 16, DIM_COLOR));
+        root.addView(label(DISCLAIMER, 16, DIM_COLOR));
 
         rows = new LinearLayout(this);
         rows.setOrientation(LinearLayout.VERTICAL);

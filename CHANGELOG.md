@@ -6,6 +6,10 @@ under a `## <version>` heading, newest first.
 
 ## 0.3.0
 
+- Renamed to **HA TV Agent** so it cannot be mistaken for a Sony app; the
+  status screen says it is an unofficial helper for the Home Assistant
+  integration. Package name, links and pairing are unchanged, so it updates
+  in place.
 - Picture settings: the agent reads every picture-quality target the TV
   reports (68 on a BRAVIA 8 II: contrast, colour, colour temperature, local
   dimming, Motionflow, the Ambient Optimisation switches and more) and the

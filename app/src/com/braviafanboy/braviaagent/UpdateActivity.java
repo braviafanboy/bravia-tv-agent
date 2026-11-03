@@ -59,10 +59,10 @@ public final class UpdateActivity extends Activity {
             show("No update pending.");
             return;
         }
-        show("BRAVIA agent update " + updater.pendingVersion() + "\nDownloading…");
+        show("HA TV Agent update " + updater.pendingVersion() + "\nDownloading…");
         new Thread(() -> {
             try {
-                updater.run(m -> runOnUiThread(() -> show("BRAVIA agent update " + updater.pendingVersion() + "\n" + m)));
+                updater.run(m -> runOnUiThread(() -> show("HA TV Agent update " + updater.pendingVersion() + "\n" + m)));
             } catch (Exception e) {
                 runOnUiThread(() -> show("Update failed: " + e.getMessage()));
             }

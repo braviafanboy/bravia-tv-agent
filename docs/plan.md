@@ -327,7 +327,7 @@ Design rationale and every verified fact behind it: `bravia-research/docs/rest-i
 ### R2 — agent: auth and write tier
 
 - **`RestAuth`** (new), app-private prefs `rest`.
-  - Normal auth: `accessControl.actRegister` with `clientid` = a per-install UUID, `nickname` "BRAVIA agent", `level` `private`. Begin = call without credentials → 401 and the TV shows the PIN. Complete = same call with HTTP Basic `:<pin>` → `Set-Cookie: auth=…; Max-Age=1209600`; store cookie and expiry.
+  - Normal auth: `accessControl.actRegister` with `clientid` = a per-install UUID, `nickname` "HA TV Agent", `level` `private`. Begin = call without credentials → 401 and the TV shows the PIN. Complete = same call with HTTP Basic `:<pin>` → `Set-Cookie: auth=…; Max-Age=1209600`; store cookie and expiry.
   - Renewal: re-register with the cookie weekly and whenever under 7 days remain; a 401 on a write triggers one renewal attempt, then reports `write_authorized=false`.
   - PSK fallback: stored only if the user supplies one; never both active.
   - PIN, cookie and PSK never appear in state, info, logs or the status screen.

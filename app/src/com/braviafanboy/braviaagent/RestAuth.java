@@ -27,7 +27,7 @@ import java.util.regex.Pattern;
 public final class RestAuth {
     private static final String TAG = "BraviaAgent";
     private static final String PREFS = "rest";
-    private static final String NICKNAME = "BRAVIA agent";
+    private static final String NICKNAME = "HA TV Agent";
     private static final long DAY_MS = 24L * 3600 * 1000;
     /** Renew once less than this is left (the cookie lasts 14 days). */
     private static final long RENEW_BEFORE_MS = 7 * DAY_MS;

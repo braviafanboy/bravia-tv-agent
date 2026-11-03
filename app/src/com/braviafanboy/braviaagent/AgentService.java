@@ -364,7 +364,7 @@ public final class AgentService extends Service implements HttpServer.InfoProvid
         if (nsd == null) return;
         unregisterMdns();
         NsdServiceInfo info = new NsdServiceInfo();
-        info.setServiceName("BRAVIA agent");
+        info.setServiceName("HA TV Agent");
         info.setServiceType(SERVICE_TYPE);
         info.setPort(PORT);
         info.setAttribute("v", String.valueOf(HttpServer.CONTRACT));
@@ -396,11 +396,11 @@ public final class AgentService extends Service implements HttpServer.InfoProvid
 
     private Notification buildNotification() {
         NotificationManager nm = getSystemService(NotificationManager.class);
-        nm.createNotificationChannel(new NotificationChannel(CHANNEL, "BRAVIA agent", NotificationManager.IMPORTANCE_MIN));
+        nm.createNotificationChannel(new NotificationChannel(CHANNEL, "HA TV Agent", NotificationManager.IMPORTANCE_MIN));
         Intent open = new Intent(this, StatusActivity.class);
         PendingIntent pi = PendingIntent.getActivity(this, 0, open, PendingIntent.FLAG_IMMUTABLE);
         return new Notification.Builder(this, CHANNEL)
-            .setContentTitle("BRAVIA agent")
+            .setContentTitle("HA TV Agent")
             .setContentText("Reporting to Home Assistant on port " + PORT)
             .setSmallIcon(android.R.drawable.stat_notify_sync)
             .setContentIntent(pi)
