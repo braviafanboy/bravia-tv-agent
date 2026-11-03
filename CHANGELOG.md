@@ -4,6 +4,16 @@ The release workflow copies the section matching the tag into `agent.json`,
 which Home Assistant shows as the update's release notes. Keep each section
 under a `## <version>` heading, newest first.
 
+## 0.2.9
+
+- Picture settings: the agent reads every picture-quality target the TV
+  reports (68 on a BRAVIA 8 II: contrast, colour, colour temperature, local
+  dimming, Motionflow, the Ambient Optimisation switches and more) and the
+  power-saving mode from the TV's REST IP-control API, and publishes them in
+  new `rest`, `picture` and `power_saving` state blocks. Reads need no
+  credential; it works out by itself whether the TV speaks HTTPS or HTTP.
+- New `POST /v1/picture/refresh` to re-read on demand.
+
 ## 0.2.8
 
 - Self-update from Home Assistant: the integration stages a release, the

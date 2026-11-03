@@ -21,6 +21,7 @@ import com.braviafanboy.braviaagent.readers.DisplayReader;
 import com.braviafanboy.braviaagent.readers.EnvironmentReader;
 import com.braviafanboy.braviaagent.readers.InputsReader;
 import com.braviafanboy.braviaagent.readers.MediaReader;
+import com.braviafanboy.braviaagent.readers.PictureReader;
 import com.braviafanboy.braviaagent.readers.SettingsReader;
 import com.braviafanboy.braviaagent.readers.ThemesReader;
 import com.braviafanboy.braviaagent.readers.WifiReader;
@@ -38,7 +39,7 @@ public final class AgentService extends Service implements HttpServer.InfoProvid
     private static final int NOTIFICATION_ID = 1;
     public static final int PORT = 8585;
     public static final String SERVICE_TYPE = "_bravia-agent._tcp";
-    public static final String VERSION = "0.2.8";
+    public static final String VERSION = "0.2.9";
 
     private static volatile AgentService instance;
 
@@ -56,6 +57,7 @@ public final class AgentService extends Service implements HttpServer.InfoProvid
     private WifiReader wifi;
     private SettingsReader settings;
     private ThemesReader themes;
+    private PictureReader picture;
     private NsdManager nsd;
     private NsdManager.RegistrationListener registration;
     private String registeredId;
@@ -95,12 +97,13 @@ public final class AgentService extends Service implements HttpServer.InfoProvid
         bluetooth = new BluetoothReader(this, store);
         wifi = new WifiReader(this, store);
         settings = new SettingsReader(this, store);
+        picture = new PictureReader(store, new RestClient());
         display.setPanelListener(this::onPanelChanged);
         display.start();
         inputs.start();
         identity.start();
         if (display.isPanelOn()) resumeReaders(); else Log.i(TAG, "panel off at start: readers paused");
-        server = new HttpServer(this, PORT, store, themes, this, media, pairing);
+        server = new HttpServer(this, PORT, store, themes, this, media, pairing, picture);
         try {
             tls = Tls.load(this);
             server.makeSecure(tls.serverSocketFactory(), null);
@@ -188,6 +191,7 @@ public final class AgentService extends Service implements HttpServer.InfoProvid
         settings.start();
         media.start();
         bluetooth.start();
+        picture.start();
         Log.i(TAG, "readers running");
     }
 
@@ -200,6 +204,7 @@ public final class AgentService extends Service implements HttpServer.InfoProvid
         settings.stop();
         media.stop();
         bluetooth.stop();
+        picture.stop();
         Log.i(TAG, "readers paused (panel off)");
     }
 
@@ -238,7 +243,7 @@ public final class AgentService extends Service implements HttpServer.InfoProvid
             Updater u = new Updater(this);
             upd.put("pending_version", u.pendingUrl() == null ? JSONObject.NULL : u.pendingVersion());
             o.put("update", upd);
-            o.put("endpoints", new JSONArray(Arrays.asList("/v1/state", "/v1/events", "/v1/themes", MediaReader.ARTWORK_PATH)));
+            o.put("endpoints", new JSONArray(Arrays.asList("/v1/state", "/v1/events", "/v1/themes", MediaReader.ARTWORK_PATH, HttpServer.PICTURE_REFRESH_PATH)));
         } catch (Exception ignored) {
         }
         return o;

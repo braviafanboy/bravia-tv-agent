@@ -125,7 +125,24 @@ every request except `GET /v1/info` and `POST /v1/pair` must carry
   "settings": {
     "power.power_saving": "off",
     "network.remotestart": "true"
-  }
+  },
+  "rest": {
+    "available": true,
+    "scheme": "https",
+    "auth": "none",
+    "write_authorized": false,
+    "cookie_expires": null
+  },
+  "picture": {
+    "targets": {
+      "contrast": {"value": "90", "available": true, "candidates": [{"min": 0, "max": 100, "step": 1}]},
+      "colorTemperature": {"value": "expert2", "available": true,
+                           "candidates": [{"value": "cool"}, {"value": "neutral"}, {"value": "warm"}, {"value": "expert1"}, {"value": "expert2"}]},
+      "autoLuminanceLevel": {"value": "off", "available": false, "candidates": [{"value": "on"}, {"value": "off"}]},
+      "wideMode": {"value": "", "available": false, "candidates": []}
+    }
+  },
+  "power_saving": "off"
 }
 ```
 
@@ -165,6 +182,38 @@ Field notes:
   (`speaker`, `hdmi_arc`, `hdmi_earc`, `bt_a2dp`, `headphone`).
 - `settings` contains only the keys the agent is built to report; values are
   the provider's raw strings.
+- `rest`, `picture` and `power_saving` come from the TV's REST IP-control API
+  (the `webapi` package), called by the agent on the TV itself (0.2.9+). They
+  are `null` until the first read. The agent finds the endpoint by probing:
+  HTTPS on 443, then plain HTTP (the scheme is a TV setting with a
+  region-enforced default), on loopback first, then the TV's own LAN address;
+  `rest.scheme` reports which one answered. `rest.available` is false when
+  IP control does not answer (switched off, or not yet up after wake); then
+  `picture` and `power_saving` are `null`. Reads need no credential.
+  `auth` / `write_authorized` / `cookie_expires` stay `none` / `false` /
+  `null` until the write tier exists.
+- `picture.targets` holds every picture-quality target the TV reports for the
+  current picture mode, unchanged: `value` is the TV's string, `available` its
+  `isAvailable` (false e.g. for the three Ambient Optimisation sub-switches
+  while `sensorAutoAdjustment` is off), `candidates` its candidate list in one
+  of three shapes: a single `{min, max, step}` range, a list of `{value}`
+  options, or empty. Empty goes with an empty `value` and `available: false`
+  when the target does not apply to the current source: on an app,
+  `wideMode`, `displayArea`, `hdmiSignalFormat`, `hdmiSignalFormatVrr` and
+  `hdmiVideoRange` are like that (their options on an HDMI input are not yet
+  observed). Values are per picture mode.
+- `power_saving` is `system.getPowerSavingMode` (`off`, `low`, `high`).
+- Read cadence: when the panel turns on, every 5 min while it is on (1 min
+  while unavailable), and on `POST /v1/picture/refresh`. Nothing on the TV
+  signals a picture-setting change to an ordinary app, so clients that see a
+  picture mode, input or content mode change (gRPC push) should request a
+  refresh.
+
+## `POST /v1/picture/refresh`
+
+Bearer-authenticated. Queues an immediate REST re-read (coalesced with one
+already queued) and answers `{"queued": true}` at once; the result arrives as
+a normal `state` event if anything changed. 405 for other methods.
 
 ## `GET /v1/events`
 

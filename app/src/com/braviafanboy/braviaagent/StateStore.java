@@ -27,7 +27,8 @@ public final class StateStore {
 
     private static final long COALESCE_MS = 500;
     private static final String[] BLOCKS = {
-        "environment", "display", "media", "inputs", "audio", "bluetooth", "wifi", "settings"
+        "environment", "display", "media", "inputs", "audio", "bluetooth", "wifi", "settings",
+        "rest", "picture", "power_saving"
     };
 
     private final Map<String, Object> blocks = new LinkedHashMap<>();

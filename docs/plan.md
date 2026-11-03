@@ -158,7 +158,7 @@ block, without which the Living Decor provider query returns a null cursor
 | 2 ✅ | Bluetooth (remote battery), Living Decor themes, Sony settings dump → chosen keys | provider stability across launcher versions |
 | 3 ✅ (soak pending) | Bearer token, Wi-Fi block, hardening (reconnect, memory, doze on standby) | long-running stability over weeks |
 | HA ✅ (unit-tested; live VM check pending) | Integration support: probe on the TV's host, pairing (cloud deep link / local launch), SSE, sensors, now-playing, theme select — commit in bravia-tv-grpc-homeassistant main | — |
-| R1–R3 (planned) | REST picture channel: agent-relayed reads (no auth), Normal-auth PIN registration, writes, integration entities — see *REST picture channel plan* | reads on the live TV; PIN flow with the user present; CPU unchanged |
+| R1 ✅ (0.2.9, local) · R2–R3 planned | REST picture channel: agent-relayed reads (no auth), Normal-auth PIN registration, writes, integration entities — see *REST picture channel plan* | reads on the live TV; PIN flow with the user present; CPU unchanged |
 
 ## Phase 0 findings (2026-11-02, BRAVIA 8 II, Android 14)
 
@@ -313,6 +313,17 @@ Design rationale and every verified fact behind it: `bravia-research/docs/rest-i
 - **Endpoint** `POST /v1/picture/refresh` (bearer). Listed in `info.endpoints`.
 - **Verify live:** all 68 targets read, scheme probe on this HTTPS set, candidate shapes for enum targets (only numeric ranges are confirmed so far), idle CPU with the 5-min poll measured the same way as *Resource behaviour*.
 
+**R1 findings (2026-11-03, agent 0.2.9, live on the BRAVIA 8 II):**
+
+- Implemented as `RestClient` (probing JSON-RPC client) and `readers/PictureReader`, wired into the panel-gated reader lifecycle; `POST /v1/picture/refresh`; blocks `rest`, `picture`, `power_saving` (contract updated).
+- The TV's communication mode had been switched to HTTP since the earlier HTTPS tests (443 closed, 80 answering), so the probe was exercised for real: HTTPS failed and it settled on `http://127.0.0.1` by itself. In HTTPS mode the earlier loopback probe showed `https://127.0.0.1` works, which is the first candidate.
+- First read: 68 targets, `power_saving=off`, both calls plus the probe in ~13 ms. Nothing appeared on screen; YouTube stayed in front.
+- Candidate shapes over all 68: 25 value lists (on/off pairs → switch, longer lists → select), 38 numeric ranges (→ number), 5 empty. The empty ones (`wideMode`, `displayArea`, the three HDMI signal targets) are empty and unavailable on an app source; their options on an HDMI input are still to be observed before R3 maps them.
+- `autoLuminanceLevel`, `autoToneCurve`, `autoWhiteBalance` report `available: false` while `sensorAutoAdjustment` is off, as the design note predicted.
+- Home Assistant (integration 0.3.0 on the VM) ignores the new blocks: agent online, entities updating, diagnostics list the new endpoint.
+- Cost (YouTube playing): agent 10 ticks in 360 s = 0.028% of one core, same as before. The webapi is the expensive side: one full 68-target `getPictureQualitySettings` read costs it ~111 ms CPU and ~1 s wall time (20 reads from the LAN: +222 ticks in 19 s); its own idle rate is 0.017% of a core. A 5-min poll therefore averages ~0.04% of a core as a short burst. Decision 3 should weigh a 10–15 min poll, since gRPC-triggered refreshes cover the common changes. (The VM also runs the Bravia REST API custom integration, which polls the same server.)
+- Not yet exercised: `POST /v1/picture/refresh` with a valid token (it needs the token Home Assistant holds; R3 calls it), and the HTTPS path with this build.
+
 ### R2 — agent: auth and write tier
 
 - **`RestAuth`** (new), app-private prefs `rest`.
@@ -339,6 +350,7 @@ Design rationale and every verified fact behind it: `bravia-research/docs/rest-i
 - Direct REST client in the integration for agent-less setups (same entities, Normal auth with the cookie in the config entry).
 - Agent-side luminance LUT control loop (parked idea; would reuse the R2 write path with smoothing and hysteresis).
 - Wake-on-LAN mode, LED, reboot: check which need a credential once R2 exists.
+- Control-plane benchmarking and preferential routing (idea, after REST): several commands exist on more than one plane — brightness and picture mode (gRPC, REST, cloud), volume and mute (gRPC, REST), power (gRPC, REST, cloud), input and app launch (gRPC, REST). Measure per command both the acknowledgement latency and the time until the change is confirmed in state, then route to the fastest plane with the others as fallbacks. Weigh against what each plane costs the TV (e.g. the webapi read cost above) and keep one owner per setting so planes do not fight.
 
 ### Decisions needed before R3
 

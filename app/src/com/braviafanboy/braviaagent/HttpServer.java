@@ -3,6 +3,7 @@ package com.braviafanboy.braviaagent;
 import android.util.Log;
 
 import com.braviafanboy.braviaagent.readers.MediaReader;
+import com.braviafanboy.braviaagent.readers.PictureReader;
 import com.braviafanboy.braviaagent.readers.ThemesReader;
 
 import org.json.JSONArray;
@@ -23,6 +24,7 @@ import fi.iki.elonen.NanoHTTPD;
 public final class HttpServer extends NanoHTTPD {
     private static final String TAG = "BraviaAgent";
     public static final int CONTRACT = 1;
+    public static final String PICTURE_REFRESH_PATH = "/v1/picture/refresh";
     private static final long HEARTBEAT_MS = 30000;
     private static final int QUEUE_DEPTH = 16;
 
@@ -31,6 +33,7 @@ public final class HttpServer extends NanoHTTPD {
     private final InfoProvider info;
     private final MediaReader media;
     private final Pairing pairing;
+    private final PictureReader picture;
     private final Updater updater;
     private final java.util.Set<Thread> streams = java.util.Collections.synchronizedSet(new java.util.HashSet<>());
 
@@ -38,13 +41,14 @@ public final class HttpServer extends NanoHTTPD {
         JSONObject info();
     }
 
-    public HttpServer(android.content.Context context, int port, StateStore store, ThemesReader themes, InfoProvider info, MediaReader media, Pairing pairing) {
+    public HttpServer(android.content.Context context, int port, StateStore store, ThemesReader themes, InfoProvider info, MediaReader media, Pairing pairing, PictureReader picture) {
         super(port);
         this.store = store;
         this.themes = themes;
         this.info = info;
         this.media = media;
         this.pairing = pairing;
+        this.picture = picture;
         this.updater = new Updater(context);
     }
 
@@ -68,6 +72,7 @@ public final class HttpServer extends NanoHTTPD {
             return r;
         }
         if ("/v1/update".equals(path)) return update(session);
+        if (PICTURE_REFRESH_PATH.equals(path)) return pictureRefresh(session);
         if (session.getMethod() != Method.GET) return error(Response.Status.METHOD_NOT_ALLOWED, "method_not_allowed");
         switch (path) {
             case "/v1/state": return json(store.snapshot());
@@ -111,6 +116,16 @@ public final class HttpServer extends NanoHTTPD {
         JSONObject o = new JSONObject();
         try { o.put("pending", url); } catch (Exception ignored) { }
         log("update staged: " + url);
+        return json(o);
+    }
+
+    /** POST /v1/picture/refresh: re-read the REST picture settings now (async; the change arrives as a state event). */
+    private Response pictureRefresh(IHTTPSession session) {
+        if (session.getMethod() != Method.POST) return error(Response.Status.METHOD_NOT_ALLOWED, "method_not_allowed");
+        if (picture == null) return error(Response.Status.NOT_FOUND, "not_found");
+        picture.refresh();
+        JSONObject o = new JSONObject();
+        try { o.put("queued", true); } catch (Exception ignored) { }
         return json(o);
     }
 
