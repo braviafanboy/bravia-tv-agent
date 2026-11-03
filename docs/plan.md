@@ -356,15 +356,12 @@ Design rationale and every verified fact behind it: `bravia-research/docs/rest-i
 
 1. Controls present before authorisation (recommended: yes, writes fail with the repair link) versus read-only sensors until authorised.
 2. The default-enabled target set above.
-3. ~~The 5-min poll plus gRPC-triggered refresh, versus a faster poll~~ → make it a user choice (idea 2026-11-03): an integration option **Picture settings refresh: Lazy / Eager**.
-   - **Lazy (default 1 min):** one full read per minute, no event-triggered reads. ≈0.18% of a core on the webapi on average. Values can lag up to a minute after a change.
-   - **Eager (default 10 s):** every 10 s read only the *watched* targets (those with an enabled entity in Home Assistant) one call each; a full read every minute and on triggers (gRPC picture mode / input / content mode change, HDR change seen by the agent, the agent's own writes). ≈0.06% of a core per watched target, ≈0.8% for the 13 default-enabled ones — about 25× the agent's own footprint, so measure on the TV before settling. A 10 s *full* read (≈1.1%, webapi busy ~9% of the time) is ruled out.
-   - Measured 2026-11-03 (webapi, 20 reads each from the LAN): full read 110 ms CPU / 944 ms wall; one target 5–6.5 ms CPU / ~45 ms wall. A target *list* in one call is rejected (`Illegal Argument`), so subset reads are one call per target.
-   - Both modes stop while the panel is off. The watched-target list travels with the mode: `POST /v1/picture/config` with `{"mode": "lazy"|"eager", "watch": [targets]}`, re-sent when the option or the enabled entities change.
-   - Either way the agent re-reads right after its own writes, so a write is never validated against stale candidates.
-   - The setting lives in the agent, set by the integration: `POST /v1/picture/config` stores the **mode name** (and the watched targets) in the agent's prefs (survives restarts and standby) and `rest.refresh_mode` reports it back, so Home Assistant shows what is in effect. The agent owns what each mode means (poll interval, local triggers). The integration option is the source of truth and is re-sent on every connection, which is idempotent and restores it after an uninstall wipes the prefs.
-   - In Eager the agent also self-triggers a re-read on local signals it already has, e.g. an HDR format change from `DisplayReader`, which switches the active picture setting set. Home Assistant adds a `POST /v1/picture/refresh` only for what the agent cannot see: picture mode, input and content mode changes pushed over gRPC.
-   - Agent side in R2, integration option and gRPC trigger in R3.
+3. ~~Poll cadence~~ → **two integration options with sane defaults** (2026-11-03), replacing the earlier Lazy/Eager idea:
+   - **Picture settings poll interval**, default 60 s, bounded 10 s – 60 min. Sent to the agent with `POST /v1/picture/config` `{"poll_s": N, "event_refresh": bool, "watch": [targets]}`; the agent clamps it, stores it in its prefs (survives restarts, standby) and reports it back in `rest`. The option text says shorter intervals load the TV more. Re-sent on every connection (idempotent; restores it after an uninstall wipes the prefs).
+   - **Refresh on TV events**, default on: the integration requests `POST /v1/picture/refresh` (debounced 1 s) on gRPC picture mode / input / content mode changes, and `event_refresh` lets the agent self-trigger on HDR changes it sees. Rare events, one full read each.
+   - Agent-internal, not a setting: intervals under 60 s read only the watched targets (enabled entities) each tick, one call each, plus a full read every 60 s; at 60 s and above each tick is one full read. The agent always re-reads after its own writes. Nothing runs while the panel is off.
+   - Measured cost (webapi, 2026-11-03, 20 reads each): full read 110 ms CPU / 944 ms wall; one target 5–6.5 ms CPU / ~45 ms wall; target lists in one call are rejected (`Illegal Argument`). So 60 s full ≈ 0.18% of a core; 10 s with the 13 default-enabled targets ≈ 0.8% (≈25× the agent's own footprint — measure before recommending short intervals); 10 s full ≈ 1.1% (never done).
+   - Agent side in R2, integration options and gRPC trigger in R3.
 
 ## Open questions
 
