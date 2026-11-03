@@ -44,7 +44,8 @@ public final class MediaReader {
     private final List<MediaController.Callback> callbacks = new ArrayList<>();
     private boolean attached;
     private volatile byte[] artwork;
-    private String artworkKey;
+    private Bitmap artworkSource;
+    private int artworkRev;
 
     private final MediaSessionManager.OnActiveSessionsChangedListener sessions = this::attach;
     private final Runnable tick = new Runnable() {
@@ -181,7 +182,7 @@ public final class MediaReader {
                 o.put("duration_s", JSONObject.NULL);
                 o.put("artwork_url", JSONObject.NULL);
                 artwork = null;
-                artworkKey = null;
+                artworkSource = null;
                 store.update("media", o);
                 return;
             }
@@ -207,8 +208,8 @@ public final class MediaReader {
             }
             long dur = md == null ? 0 : md.getLong(MediaMetadata.METADATA_KEY_DURATION);
             o.put("duration_s", dur > 0 ? dur / 1000.0 : JSONObject.NULL);
-            updateArtwork(c.getPackageName(), title, md);
-            o.put("artwork_url", artwork == null ? JSONObject.NULL : ARTWORK_PATH);
+            updateArtwork(md);
+            o.put("artwork_url", artwork == null ? JSONObject.NULL : ARTWORK_PATH + "?v=" + artworkRev);
             store.update("media", o);
             if (playing) handler.postDelayed(tick, TICK_MS);
         } catch (Exception e) {
@@ -216,25 +217,42 @@ public final class MediaReader {
         }
     }
 
-    private void updateArtwork(String app, String title, MediaMetadata md) {
-        String key = app + "|" + title;
-        if (key.equals(artworkKey)) return;
-        artworkKey = key;
-        artwork = null;
-        if (md == null) return;
-        Bitmap bmp = md.getBitmap(MediaMetadata.METADATA_KEY_ART);
-        if (bmp == null) bmp = md.getBitmap(MediaMetadata.METADATA_KEY_ALBUM_ART);
-        if (bmp == null) bmp = md.getBitmap(MediaMetadata.METADATA_KEY_DISPLAY_ICON);
-        if (bmp == null) return;
+    /**
+     * Re-encode the artwork whenever the session hands us a different bitmap.
+     * Apps update metadata in steps (YouTube sends the new title before the
+     * new thumbnail), so the cache is keyed on the bitmap itself, and each
+     * new image bumps the revision carried in artwork_url so clients refetch.
+     */
+    private void updateArtwork(MediaMetadata md) {
+        Bitmap bmp = null;
+        if (md != null) {
+            bmp = md.getBitmap(MediaMetadata.METADATA_KEY_ART);
+            if (bmp == null) bmp = md.getBitmap(MediaMetadata.METADATA_KEY_ALBUM_ART);
+            if (bmp == null) bmp = md.getBitmap(MediaMetadata.METADATA_KEY_DISPLAY_ICON);
+        }
+        if (bmp == null) {
+            artwork = null;
+            artworkSource = null;
+            return;
+        }
+        if (bmp == artworkSource && artwork != null) return;
+        if (artworkSource != null && bmp.getWidth() == artworkSource.getWidth()
+                && bmp.getHeight() == artworkSource.getHeight() && bmp.sameAs(artworkSource)) {
+            artworkSource = bmp;
+            return;
+        }
         try {
+            Bitmap scaled = bmp;
             int w = bmp.getWidth(), h = bmp.getHeight();
             if (Math.max(w, h) > ARTWORK_MAX) {
-                float s = ARTWORK_MAX / (float) Math.max(w, h);
-                bmp = Bitmap.createScaledBitmap(bmp, Math.max(1, Math.round(w * s)), Math.max(1, Math.round(h * s)), true);
+                float f = ARTWORK_MAX / (float) Math.max(w, h);
+                scaled = Bitmap.createScaledBitmap(bmp, Math.max(1, Math.round(w * f)), Math.max(1, Math.round(h * f)), true);
             }
             ByteArrayOutputStream out = new ByteArrayOutputStream();
-            bmp.compress(Bitmap.CompressFormat.PNG, 90, out);
+            scaled.compress(Bitmap.CompressFormat.PNG, 90, out);
             artwork = out.toByteArray();
+            artworkSource = bmp;
+            artworkRev++;
         } catch (Exception ignored) {
         }
     }

@@ -71,7 +71,7 @@ carry `Authorization: Bearer <token>`; otherwise 401 `{"error":"unauthorized"}`.
     "album": null,
     "position_s": 54.0,
     "duration_s": 596.0,
-    "artwork_url": "/v1/media/artwork"
+    "artwork_url": "/v1/media/artwork?v=7"
   },
   "inputs": [
     {"id": "HW4", "label": "HDMI 3", "connected": true}
@@ -103,7 +103,9 @@ Field notes:
   `state` is `none` and `active` false when no app holds a media session.
   `position_s` is extrapolated from the session's last update and refreshed
   every 10 s while playing; `artwork_url` is set only while a PNG is available
-  from `GET /v1/media/artwork` (404 otherwise, max 512 px).
+  from `GET /v1/media/artwork` (404 otherwise, max 512 px) and carries a
+  `?v=<n>` revision that changes with every new image, so clients can cache
+  on the full URL.
 - `bluetooth` is `null` until BLUETOOTH_CONNECT is granted (the status screen
   asks on launch). `remote` is the first bonded HID device; `connected` comes
   from the system GATT / A2DP / Headset connection lists; `battery_pct` for
