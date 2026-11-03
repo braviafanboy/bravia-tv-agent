@@ -17,24 +17,16 @@ public final class DisplayReader implements DisplayManager.DisplayListener {
         void onPanelChanged(boolean on);
     }
 
-    public interface HdrListener {
-        void onHdrChanged(boolean hdr);
-    }
 
     private final DisplayManager manager;
     private final StateStore store;
     private PanelListener panelListener;
-    private HdrListener hdrListener;
     private Boolean lastOn;
-    private Boolean lastHdr;
 
     public void setPanelListener(PanelListener l) {
         panelListener = l;
     }
 
-    public void setHdrListener(HdrListener l) {
-        hdrListener = l;
-    }
 
     public boolean isPanelOn() {
         Display d = manager.getDisplay(Display.DEFAULT_DISPLAY);
@@ -79,10 +71,10 @@ public final class DisplayReader implements DisplayManager.DisplayListener {
             Display.HdrCapabilities caps = d.getHdrCapabilities();
             if (caps != null) for (int t : caps.getSupportedHdrTypes()) hdr.put(hdrName(t));
             o.put("hdr_supported", hdr);
-            boolean isHdr = d.isHdr();
-            o.put("is_hdr", isHdr);
-            if (lastHdr != null && lastHdr != isHdr && hdrListener != null) hdrListener.onHdrChanged(isHdr);
-            lastHdr = isHdr;
+            // isHdr() is the panel's HDR capability, not live HDR playback: Sony's
+            // video pipeline bypasses Android's display layers (verified with HDR10
+            // playing). Live format comes from gRPC playback_control.signal_info.video.
+            o.put("is_hdr", d.isHdr());
             store.update("display", o);
         } catch (Exception ignored) {
         }

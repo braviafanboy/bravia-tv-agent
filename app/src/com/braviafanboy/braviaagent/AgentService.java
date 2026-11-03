@@ -103,7 +103,6 @@ public final class AgentService extends Service implements HttpServer.InfoProvid
         restAuth = new RestAuth(this);
         picture = new PictureReader(this, store, rest, restAuth);
         display.setPanelListener(this::onPanelChanged);
-        display.setHdrListener(hdr -> picture.onHdrChanged());
         display.start();
         inputs.start();
         identity.start();

@@ -37,10 +37,12 @@ import java.util.concurrent.atomic.AtomicBoolean;
  * ({@code poll_s}, default 60 s). Below 60 s a tick reads only the watched
  * targets (one call each, ~3-6 ms of webapi CPU) and a full read (~110 ms)
  * happens once a minute, unless 20 or more targets are watched, when a full
- * read per tick is cheaper; at 60 s and above every tick is a full read. With
- * {@code event_refresh} on, an HDR change triggers a full read; the
- * integration adds refreshes for what only gRPC sees (picture mode, input,
- * content mode). The agent always re-reads after its own writes.
+ * read per tick is cheaper; at 60 s and above every tick is a full read. The
+ * integration requests refreshes on events only gRPC sees (picture mode,
+ * input, content mode, video format such as HDR10 starting): Android's display
+ * API cannot see HDR playback on these sets. {@code event_refresh} is stored
+ * here so both sides agree on it. The agent always re-reads after its own
+ * writes.
  *
  * <p>Publishes {@code rest} (reachability, auth, refresh settings),
  * {@code picture} (every target as the TV reports it) and {@code power_saving}.
@@ -159,11 +161,6 @@ public final class PictureReader {
         // Apply the new interval from now.
         handler.post(() -> { if (running) reschedule(true); });
         return effective;
-    }
-
-    /** HDR started or stopped: the active picture setting set changes. */
-    public void onHdrChanged() {
-        if (eventRefresh()) refresh();
     }
 
     // ---- reads ------------------------------------------------------------

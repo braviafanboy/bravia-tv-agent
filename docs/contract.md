@@ -216,11 +216,13 @@ Field notes:
   (1 min while unavailable). Below 60 s each tick reads only the `watch`
   targets (one call each) and a full read happens once a minute, unless 20 or
   more targets are watched, when every tick is a full read (cheaper); at 60 s
-  and above every tick is a full read. With `event_refresh`, an HDR change
-  triggers a full read. The agent re-reads after its own writes. Nothing on
-  the TV signals a picture-setting change to an ordinary app, so clients that
-  see a picture mode, input or content mode change (gRPC push) should call
-  `POST /v1/picture/refresh`. Nothing runs while the panel is off.
+  and above every tick is a full read. The agent re-reads after its own
+  writes. Nothing on the TV signals a picture-setting change to an ordinary
+  app, and Android's display API does not see HDR playback on these sets, so
+  clients with `event_refresh` on should call `POST /v1/picture/refresh` when
+  gRPC reports a change of picture mode, input, content mode or video format
+  (`playback_control.signal_info.video`, e.g. SDR → HDR10). Nothing runs while
+  the panel is off.
 
 ## `POST /v1/picture/refresh`
 
