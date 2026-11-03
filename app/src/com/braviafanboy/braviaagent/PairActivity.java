@@ -15,21 +15,25 @@ public final class PairActivity extends Activity {
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
         AgentService.start(this);
-        Intent intent = getIntent();
-        Uri data = intent == null ? null : intent.getData();
         android.util.Log.i("BraviaAgent", "pair link from " + getReferrer());
-        if (data != null && "braviaagent".equals(data.getScheme()) && "pair".equals(data.getHost())) {
-            String token = data.getQueryParameter("token");
-            String name = data.getQueryParameter("name");
-            AgentService svc = AgentService.instance();
-            if (token != null && svc != null) {
-                svc.pairing().adopt(token, name == null ? "deep_link" : name);
-            } else if (token != null) {
-                // Service not up yet: let it adopt once created.
-                Pairing p = new Pairing(this);
-                p.adopt(token, name == null ? "deep_link" : name);
-            }
-        }
+        adoptPairLink(this, getIntent());
         finish();
+    }
+
+    /** Adopt the token of a {@code braviaagent://pair?token=…} intent; true if it was one. */
+    static boolean adoptPairLink(android.content.Context context, Intent intent) {
+        Uri data = intent == null ? null : intent.getData();
+        if (data == null || !"braviaagent".equals(data.getScheme()) || !"pair".equals(data.getHost())) return false;
+        String token = data.getQueryParameter("token");
+        String name = data.getQueryParameter("name");
+        if (token == null) return true;
+        AgentService svc = AgentService.instance();
+        if (svc != null) {
+            svc.pairing().adopt(token, name == null ? "deep_link" : name);
+        } else {
+            // Service not up yet: it reads the stored token when it starts.
+            new Pairing(context).adopt(token, name == null ? "deep_link" : name);
+        }
+        return true;
     }
 }

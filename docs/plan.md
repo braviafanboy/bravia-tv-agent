@@ -247,7 +247,17 @@ block, without which the Living Decor provider query returns a null cursor
   install) clears both and re-pairs. Name, chain and validity are ignored,
   so IP changes and clock skew cannot break it.
 - Reinstall and factory reset lose the key together with the token, so the
-  only visible effect is a new pairing.
+  only visible effect is a new pairing. Verified live: uninstall → install →
+  the integration saw the new certificate, re-paired through the cloud deep
+  link in ~10 s and pinned the new one, with YouTube untouched in front.
+- Two pitfalls found on the way: Sony's deep link lands on the package's
+  main activity (not the VIEW handler), so the status screen must adopt
+  pair links itself and finish before drawing; and an unpaired agent must
+  refuse a presented token (401) rather than accept anything, or a client
+  with a stale token believes it is paired.
+- A fresh install is "stopped" until launched: no broadcast starts the
+  service, so the user opens the app once (README) or the integration's app
+  launch does it.
 
 ## Open questions
 

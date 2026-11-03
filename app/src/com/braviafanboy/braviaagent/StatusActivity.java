@@ -32,6 +32,13 @@ public final class StatusActivity extends Activity {
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
         AgentService.start(this);
+        if (PairActivity.adoptPairLink(this, getIntent())) {
+            // Sony's deep link lands on the main activity with the URI attached,
+            // not on the VIEW handler: take the token and leave without drawing.
+            android.util.Log.i("BraviaAgent", "pair link via main activity from " + getReferrer());
+            finish();
+            return;
+        }
         text = new TextView(this);
         text.setTextSize(TypedValue.COMPLEX_UNIT_SP, 14);
         text.setTextColor(Color.WHITE);

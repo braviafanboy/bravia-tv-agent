@@ -101,9 +101,14 @@ public final class Pairing {
         notifyChanged();
     }
 
+    /**
+     * Unpaired, requests without credentials are allowed (nothing to check
+     * against) but a presented token is refused: a client that believes it is
+     * paired must learn that it is not, instead of being silently accepted.
+     */
     public boolean authorized(String authorizationHeader) {
         String t = token;
-        if (t == null) return true;
+        if (t == null) return authorizationHeader == null;
         if (authorizationHeader == null) return false;
         String h = authorizationHeader.trim();
         if (!h.regionMatches(true, 0, "Bearer ", 0, 7)) return false;
