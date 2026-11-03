@@ -38,7 +38,7 @@ public final class AgentService extends Service implements HttpServer.InfoProvid
     private static final int NOTIFICATION_ID = 1;
     public static final int PORT = 8585;
     public static final String SERVICE_TYPE = "_bravia-agent._tcp";
-    public static final String VERSION = "0.2.4";
+    public static final String VERSION = "0.2.5";
 
     private static volatile AgentService instance;
 
@@ -152,6 +152,10 @@ public final class AgentService extends Service implements HttpServer.InfoProvid
 
     public Pairing pairing() {
         return pairing;
+    }
+
+    public boolean notificationAccessGranted() {
+        return media != null && media.isGranted();
     }
 
     /** Notification access or a runtime permission may have changed. */

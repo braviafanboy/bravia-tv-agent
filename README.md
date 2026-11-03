@@ -62,11 +62,23 @@ TV (Android)                         Home Assistant
 - The contract is versioned on the integration side; the integration tolerates
   an older or missing agent by creating fewer entities, never by erroring.
 
-## Install (eventual)
+## Install
 
-Sideloaded APK: `adb install` or any sideloading tool on the TV, then grant
-Notification access (for now-playing) and Bluetooth (for the remote's battery)
-when the app asks. Not distributed through Google Play.
+1. Get `bravia-agent.apk` from the [releases](https://github.com/braviafanboy/bravia-tv-agent/releases)
+   and install it on the TV by any sideloading route: `adb install
+   bravia-agent.apk`, a downloader app on the TV pointed at the release URL,
+   or a USB stick with the TV's file manager. Confirm the install on screen.
+2. Nothing else is needed for the sensors: the integration finds the agent,
+   starts it silently, pairs with it and creates the entities.
+3. For now-playing and the remote's battery, grant *Notification access* and
+   *Bluetooth* when the app asks. Reach the prompts with the **Agent setup**
+   button in Home Assistant or by opening the app from the TV's launcher; the
+   status screen also shows what the agent currently serves. With adb:
+   `cmd notification allow_listener com.braviafanboy.braviaagent/.MediaListenerService`
+   and `pm grant com.braviafanboy.braviaagent android.permission.BLUETOOTH_CONNECT`.
+
+Updating keeps the pairing; uninstalling loses it and the integration simply
+pairs again. Not distributed through Google Play.
 
 ## License
 

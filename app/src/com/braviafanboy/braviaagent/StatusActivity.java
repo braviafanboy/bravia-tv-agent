@@ -20,7 +20,6 @@ import org.json.JSONObject;
 public final class StatusActivity extends Activity {
     private final Handler handler = new Handler(Looper.getMainLooper());
     private TextView text;
-    private boolean launchedForPairing;
     private final Runnable refresh = new Runnable() {
         @Override public void run() {
             render();
@@ -32,10 +31,26 @@ public final class StatusActivity extends Activity {
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
         AgentService.start(this);
-        if (PairActivity.adoptPairLink(this, getIntent())) {
+        Intent intent = getIntent();
+        Uri referrer = getReferrer();
+        Uri data = intent == null ? null : intent.getData();
+        android.util.Log.i("BraviaAgent", "launched with referrer " + referrer + " data " + data);
+        if (PairActivity.adoptPairLink(this, intent)) {
             // Sony's deep link lands on the main activity with the URI attached,
             // not on the VIEW handler: take the token and leave without drawing.
-            android.util.Log.i("BraviaAgent", "pair link via main activity from " + getReferrer());
+            finish();
+            return;
+        }
+        String host = referrer == null ? null : referrer.getHost();
+        boolean setupLink = data != null && "braviaagent".equals(data.getScheme()) && "setup".equals(data.getHost());
+        if (!setupLink && host != null && host.startsWith("com.sony.")) {
+            // Launched by the integration through DeviceControlService to pair
+            // locally: open the window, say so, and leave without drawing.
+            handler.postDelayed(() -> {
+                AgentService svc = AgentService.instance();
+                if (svc != null) svc.pairing().openWindow();
+            }, 300);
+            android.widget.Toast.makeText(this, "Home Assistant is pairing with the BRAVIA agent", android.widget.Toast.LENGTH_LONG).show();
             finish();
             return;
         }
@@ -48,45 +63,43 @@ public final class StatusActivity extends Activity {
         ScrollView scroll = new ScrollView(this);
         scroll.addView(text);
         setContentView(scroll);
+        setupFlow = setupLink;
         if (checkSelfPermission("android.permission.BLUETOOTH_CONNECT") != PackageManager.PERMISSION_GRANTED) {
             requestPermissions(new String[] {"android.permission.BLUETOOTH_CONNECT"}, 1);
+        } else if (setupFlow && !notificationAccessGranted()) {
+            openNotificationAccess();
         }
-        handleLaunch(getIntent(), getReferrer());
     }
 
     @Override
     protected void onNewIntent(Intent intent) {
         super.onNewIntent(intent);
         setIntent(intent);
-        handleLaunch(intent, getReferrer());
+        if (PairActivity.adoptPairLink(this, intent)) finish();
     }
 
-    /**
-     * A launch by one of Sony's control services (the integration's local gRPC
-     * app launch; the referrer is then a com.sony.* package, not the launcher
-     * or the shell) opens the 60 s pairing window; the screen closes itself
-     * when the window ends. The cloud deep link goes to PairActivity instead.
-     */
-    private void handleLaunch(Intent intent, Uri referrer) {
-        android.util.Log.i("BraviaAgent", "launched with referrer " + referrer + " data " + (intent == null ? null : intent.getData()));
-        // Wait for the service to exist, then act.
-        handler.postDelayed(() -> {
-            AgentService svc = AgentService.instance();
-            if (svc == null) return;
-            String host = referrer == null ? null : referrer.getHost();
-            if (host != null && host.startsWith("com.sony.")) {
-                // Launched by the integration (through DeviceControlService): open
-                // the pairing window and get out of the way once it is used.
-                launchedForPairing = true;
-                svc.pairing().openWindow();
-            }
-        }, 300);
+    private boolean setupFlow;
+
+    private boolean notificationAccessGranted() {
+        android.app.NotificationManager nm = getSystemService(android.app.NotificationManager.class);
+        return nm != null && nm.isNotificationListenerAccessGranted(
+            new android.content.ComponentName(this, MediaListenerService.class));
+    }
+
+    /** Settings → Apps → Special app access → Notification access, directly. */
+    private void openNotificationAccess() {
+        try {
+            startActivity(new Intent(Settings.ACTION_NOTIFICATION_LISTENER_SETTINGS));
+        } catch (Exception e) {
+            android.util.Log.w("BraviaAgent", "notification access settings: " + e);
+        }
     }
 
     @Override
     public void onRequestPermissionsResult(int requestCode, String[] permissions, int[] grantResults) {
         AgentService svc = AgentService.instance();
         if (svc != null) svc.onPermissionsMaybeChanged();
+        if (setupFlow && !notificationAccessGranted()) openNotificationAccess();
     }
 
     /** OK / Select opens the Notification access screen for the media reader. */
@@ -104,11 +117,7 @@ public final class StatusActivity extends Activity {
             return true;
         }
         if (keyCode == KeyEvent.KEYCODE_DPAD_CENTER || keyCode == KeyEvent.KEYCODE_ENTER) {
-            try {
-                startActivity(new Intent(Settings.ACTION_NOTIFICATION_LISTENER_SETTINGS));
-            } catch (Exception e) {
-                android.util.Log.w("BraviaAgent", "notification access settings: " + e);
-            }
+            openNotificationAccess();
             return true;
         }
         return super.onKeyDown(keyCode, event);
@@ -128,11 +137,7 @@ public final class StatusActivity extends Activity {
 
     private void render() {
         AgentService svc = AgentService.instance();
-        if (launchedForPairing && svc != null && !svc.pairing().windowOpen()) {
-            launchedForPairing = false;
-            finish();
-            return;
-        }
+
         StringBuilder sb = new StringBuilder();
         sb.append("BRAVIA agent ").append(AgentService.VERSION)
           .append("  —  https://<tv>:").append(AgentService.PORT).append("/v1/state\n")
