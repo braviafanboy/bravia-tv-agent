@@ -348,7 +348,7 @@ Design rationale and every verified fact behind it: `bravia-research/docs/rest-i
 ### R3 — integration
 
 - **Client** (`grpc/agent.py`): register begin/complete, forget, set PSK, set picture target, refresh, set power saving.
-- **Entities**, generated from candidates: numeric range → `number`, value list → `select`, on/off pair → `switch`. `brightness` and `pictureMode` are excluded (gRPC owns them, with push). Enabled by default: the four Ambient Optimisation switches, contrast, colour, sharpness, colour temperature, local dimming, peak luminance, Motionflow, Reality Creation. Everything else disabled by default, entity category *config*. Unavailable when the target reports `isAvailable=false` or REST is unavailable. Power saving mode as a `select`.
+- **Entities**, generated from candidates: numeric range → `number`, value list → `select`, on/off pair → `switch`. `brightness` and `pictureMode` are excluded (gRPC owns them, with push). All enabled by default (decision 2), entity category *config*; the note asks users to disable what they do not use. Unavailable when the target reports `isAvailable=false` or REST is unavailable. Power saving mode as a `select`.
 - **Credential (decided 2026-11-03): write access is inferred from the pre-shared key in the integration's options.** An optional *REST pre-shared key* field (password selector) in the options flow, with the TV menu path in its description (Settings → Network → Home network → IP control → Authentication → Normal and Pre-Shared Key, then Pre-Shared Key). Stored in the config entry beside the gRPC keys and the agent token, redacted in diagnostics.
   - **Empty → read-only:** picture targets and power saving appear as sensors with the TV's current values.
   - **Set → writable:** the same settings appear as `number` / `switch` / `select`, power saving as a `select`.
@@ -369,7 +369,7 @@ Design rationale and every verified fact behind it: `bravia-research/docs/rest-i
 ### Decisions needed before R3
 
 1. ~~Controls present before authorisation~~ → superseded: no key = read-only sensors, key = writable controls (2026-11-03).
-2. The default-enabled target set above.
+2. ~~The default-enabled target set~~ → **decided 2026-11-03: every picture entity enabled by default**, with a note (README and the options description) to disable whatever is not useful: people try the settings and keep what helps. Cost: none extra at the default 60 s poll (one full read per tick regardless); below 60 s the agent switches to a full read per tick once 20+ targets are watched, so everything enabled at 10 s costs ≈1.1% of a core, the same as a 10 s full read.
 3. ~~Poll cadence~~ → **two integration options with sane defaults** (2026-11-03), replacing the earlier Lazy/Eager idea:
    - **Picture settings poll interval**, default 60 s, bounded 10 s – 60 min. Sent to the agent with `POST /v1/picture/config` `{"poll_s": N, "event_refresh": bool, "watch": [targets]}`; the agent clamps it, stores it in its prefs (survives restarts, standby) and reports it back in `rest`. The option text says shorter intervals load the TV more. Re-sent on every connection (idempotent; restores it after an uninstall wipes the prefs).
    - **Refresh on TV events**, default on: the integration requests `POST /v1/picture/refresh` (debounced 1 s) on gRPC picture mode / input / content mode changes, and `event_refresh` lets the agent self-trigger on HDR changes it sees. Rare events, one full read each.

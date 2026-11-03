@@ -212,8 +212,9 @@ Field notes:
 - `power_saving` is `system.getPowerSavingMode` (`off`, `low`, `high`).
 - Read cadence: when the panel turns on, then every `poll_s` while it is on
   (1 min while unavailable). Below 60 s each tick reads only the `watch`
-  targets (one call each) and a full read happens once a minute; at 60 s and
-  above every tick is a full read. With `event_refresh`, an HDR change
+  targets (one call each) and a full read happens once a minute, unless 20 or
+  more targets are watched, when every tick is a full read (cheaper); at 60 s
+  and above every tick is a full read. With `event_refresh`, an HDR change
   triggers a full read. The agent re-reads after its own writes. Nothing on
   the TV signals a picture-setting change to an ordinary app, so clients that
   see a picture mode, input or content mode change (gRPC push) should call

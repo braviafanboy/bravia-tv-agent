@@ -35,8 +35,9 @@ import java.util.concurrent.atomic.AtomicBoolean;
  * <p>Nothing on the TV announces a change to an ordinary app, so the reader
  * polls while the panel is on, at the interval the integration sets
  * ({@code poll_s}, default 60 s). Below 60 s a tick reads only the watched
- * targets (one call each, ~6 ms of webapi CPU) and a full read (~110 ms)
- * happens once a minute; at 60 s and above every tick is a full read. With
+ * targets (one call each, ~3-6 ms of webapi CPU) and a full read (~110 ms)
+ * happens once a minute, unless 20 or more targets are watched, when a full
+ * read per tick is cheaper; at 60 s and above every tick is a full read. With
  * {@code event_refresh} on, an HDR change triggers a full read; the
  * integration adds refreshes for what only gRPC sees (picture mode, input,
  * content mode). The agent always re-reads after its own writes.
@@ -51,6 +52,8 @@ public final class PictureReader {
     public static final int MIN_POLL_S = 10;
     public static final int MAX_POLL_S = 3600;
     private static final long FULL_EVERY_MS = 60000;
+    /** From this many watched targets, one full read (~110 ms) is cheaper than one call per target (~3-6 ms each). */
+    private static final int FULL_READ_ABOVE_WATCHED = 20;
     /** Shorter retry while the API is not answering (e.g. just after wake). */
     private static final long RETRY_MS = 60000;
     private static final Set<String> POWER_SAVING_MODES = new LinkedHashSet<>(Arrays.asList("off", "low", "high"));
@@ -90,7 +93,8 @@ public final class PictureReader {
 
     private final Runnable tick = new Runnable() {
         @Override public void run() {
-            boolean full = pollSeconds() >= 60 || System.currentTimeMillis() - lastFullMs >= FULL_EVERY_MS || targets == null;
+            boolean full = pollSeconds() >= 60 || watched().size() >= FULL_READ_ABOVE_WATCHED
+                || System.currentTimeMillis() - lastFullMs >= FULL_EVERY_MS || targets == null;
             if (full) refresh(); else enqueuePartial();
         }
     };
