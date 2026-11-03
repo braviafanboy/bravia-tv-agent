@@ -278,11 +278,14 @@ elevated-priority threads are ART internals. Measures taken in 0.2.3:
   **1 tick (10 ms) of CPU in 60 s, ~0.02 %** of one core; during video with
   the stream connected 13–32 ticks per 60 s (0.2–0.5 %), of which the main
   thread, GC and JIT are the only visible consumers.
-- Audio: device callback plus the system volume/mute broadcasts, 60 s
-  fallback poll (was 5 s). Wi-Fi: default-network callback, 120 s fallback
-  (was 30 s). Sony settings: content observer plus 5 min fallback (was 60 s).
-- Now-playing position ticks (10 s) only while a client holds the event
-  stream; a new subscriber restarts them.
+- Audio: device callback plus the system volume/mute broadcasts, 5 min
+  fallback poll (was 5 s). Wi-Fi: default-network callback plus the RSSI
+  broadcast, 10 min fallback (was 30 s). Sony settings: content observer
+  plus 15 min fallback (was 60 s). Bluetooth: ACL/battery broadcasts plus a
+  10 min fallback (was 60 s). (0.2.4)
+- Now-playing position ticks only while a client holds the event stream,
+  once a minute (was 10 s): clients extrapolate from position + timestamp,
+  the tick corrects drift; a new subscriber restarts them.
 - Artwork is encoded lazily on the first fetch of a revision, as WebP at
   320 px (~13 KB, was PNG 512 px ~270 KB encoded eagerly per track), and
   tracked by bitmap identity rather than a pixel comparison.

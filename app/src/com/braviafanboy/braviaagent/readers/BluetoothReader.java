@@ -48,7 +48,7 @@ public final class BluetoothReader extends BroadcastReceiver {
     private static final String EXTRA_BATTERY = "android.bluetooth.device.extra.BATTERY_LEVEL";
     private static final UUID BATTERY_SERVICE = UUID.fromString("0000180f-0000-1000-8000-00805f9b34fb");
     private static final UUID BATTERY_LEVEL = UUID.fromString("00002a19-0000-1000-8000-00805f9b34fb");
-    private static final long POLL_MS = 60000;
+    private static final long POLL_MS = 10 * 60000;
     // Remote batteries last months: read rarely, and only over a link the stack
     // already holds, so the agent never wakes the remote or keeps it awake.
     private static final long BATTERY_READ_MS = 6 * 3600000L;

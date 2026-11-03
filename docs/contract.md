@@ -121,7 +121,8 @@ Field notes:
   the agent's status screen). With access, the block is always present:
   `state` is `none` and `active` false when no app holds a media session.
   `position_s` is extrapolated from the session's last update and refreshed
-  every 10 s while playing and while a client holds `/v1/events`;
+  once a minute while playing and while a client holds `/v1/events` (clients
+  extrapolate from `ts`);
   `artwork_url` is set only while an image is available from
   `GET /v1/media/artwork` (404 otherwise; WebP, max 320 px, encoded on first
   fetch) and carries a `?v=<n>` revision that changes with every new image,

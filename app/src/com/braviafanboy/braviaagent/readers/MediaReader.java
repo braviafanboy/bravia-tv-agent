@@ -25,12 +25,13 @@ import java.util.List;
 /**
  * Now-playing from the active media sessions (needs Notification access).
  * Publishes the most relevant session: playing first, then paused/buffering,
- * then whatever is registered. While playing, the position is refreshed every
- * 10 s so the event stream carries a usable progress value.
+ * then whatever is registered. While playing (and watched), the position is
+ * refreshed once a minute; clients extrapolate in between.
  */
 public final class MediaReader {
     private static final String TAG = "BraviaAgent";
-    private static final long TICK_MS = 10000;
+    // Clients extrapolate from position + timestamp; a tick a minute corrects drift.
+    private static final long TICK_MS = 60000;
     private static final long RECHECK_MS = 30000;
     private static final int ARTWORK_MAX = 320;
     public static final String ARTWORK_PATH = "/v1/media/artwork";

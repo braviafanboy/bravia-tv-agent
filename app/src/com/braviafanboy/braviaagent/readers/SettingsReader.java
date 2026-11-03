@@ -20,7 +20,7 @@ import java.util.Set;
  */
 public final class SettingsReader {
     private static final Uri GLOBAL = Uri.parse("content://com.sony.dtv.settingsprovider/global");
-    private static final long POLL_MS = 5 * 60000;
+    private static final long POLL_MS = 15 * 60000;
     static final Set<String> KEYS = new HashSet<>(Arrays.asList(
         "power.power_saving", "power.idle_tv_standby.duration", "power.auto_shut_off",
         "network.remotestart",
