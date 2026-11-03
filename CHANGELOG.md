@@ -4,7 +4,7 @@ The release workflow copies the section matching the tag into `agent.json`,
 which Home Assistant shows as the update's release notes. Keep each section
 under a `## <version>` heading, newest first.
 
-## 0.2.9
+## 0.3.0
 
 - Picture settings: the agent reads every picture-quality target the TV
   reports (68 on a BRAVIA 8 II: contrast, colour, colour temperature, local
@@ -12,7 +12,15 @@ under a `## <version>` heading, newest first.
   power-saving mode from the TV's REST IP-control API, and publishes them in
   new `rest`, `picture` and `power_saving` state blocks. Reads need no
   credential; it works out by itself whether the TV speaks HTTPS or HTTP.
-- New `POST /v1/picture/refresh` to re-read on demand.
+- Writing them: Normal authentication (the TV shows a PIN once; the session
+  lasts 14 days and the agent renews it weekly) or a pre-shared key. Writes
+  are validated against what the TV offers. The credential never leaves the
+  TV.
+- Refresh settings stored on the TV and set by Home Assistant: poll interval
+  (default 60 s) and refresh on TV events (default on); short intervals read
+  only the settings Home Assistant shows.
+- adb-only maintenance commands
+  (`adb shell dumpsys activity service com.braviafanboy.braviaagent/.AgentService`).
 
 ## 0.2.8
 

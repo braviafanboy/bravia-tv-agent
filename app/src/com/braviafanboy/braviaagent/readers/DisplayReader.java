@@ -17,13 +17,23 @@ public final class DisplayReader implements DisplayManager.DisplayListener {
         void onPanelChanged(boolean on);
     }
 
+    public interface HdrListener {
+        void onHdrChanged(boolean hdr);
+    }
+
     private final DisplayManager manager;
     private final StateStore store;
     private PanelListener panelListener;
+    private HdrListener hdrListener;
     private Boolean lastOn;
+    private Boolean lastHdr;
 
     public void setPanelListener(PanelListener l) {
         panelListener = l;
+    }
+
+    public void setHdrListener(HdrListener l) {
+        hdrListener = l;
     }
 
     public boolean isPanelOn() {
@@ -69,7 +79,10 @@ public final class DisplayReader implements DisplayManager.DisplayListener {
             Display.HdrCapabilities caps = d.getHdrCapabilities();
             if (caps != null) for (int t : caps.getSupportedHdrTypes()) hdr.put(hdrName(t));
             o.put("hdr_supported", hdr);
-            o.put("is_hdr", d.isHdr());
+            boolean isHdr = d.isHdr();
+            o.put("is_hdr", isHdr);
+            if (lastHdr != null && lastHdr != isHdr && hdrListener != null) hdrListener.onHdrChanged(isHdr);
+            lastHdr = isHdr;
             store.update("display", o);
         } catch (Exception ignored) {
         }

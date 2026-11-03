@@ -131,7 +131,10 @@ every request except `GET /v1/info` and `POST /v1/pair` must carry
     "scheme": "https",
     "auth": "none",
     "write_authorized": false,
-    "cookie_expires": null
+    "cookie_expires": null,
+    "poll_s": 60,
+    "event_refresh": true,
+    "watch": []
   },
   "picture": {
     "targets": {
@@ -190,8 +193,12 @@ Field notes:
   `rest.scheme` reports which one answered. `rest.available` is false when
   IP control does not answer (switched off, or not yet up after wake); then
   `picture` and `power_saving` are `null`. Reads need no credential.
-  `auth` / `write_authorized` / `cookie_expires` stay `none` / `false` /
-  `null` until the write tier exists.
+  `auth` is the stored write credential: `none`, `cookie` (Normal-auth
+  session from PIN registration) or `psk`. `write_authorized` is true while
+  that credential last worked (registration, verification or a write);
+  `cookie_expires` is the cookie's expiry (14 days, renewed by the agent once
+  less than 7 remain). `poll_s`, `event_refresh` and `watch` are the refresh
+  settings set with `POST /v1/picture/config`.
 - `picture.targets` holds every picture-quality target the TV reports for the
   current picture mode, unchanged: `value` is the TV's string, `available` its
   `isAvailable` (false e.g. for the three Ambient Optimisation sub-switches
@@ -203,17 +210,67 @@ Field notes:
   `hdmiVideoRange` are like that (their options on an HDMI input are not yet
   observed). Values are per picture mode.
 - `power_saving` is `system.getPowerSavingMode` (`off`, `low`, `high`).
-- Read cadence: when the panel turns on, every 5 min while it is on (1 min
-  while unavailable), and on `POST /v1/picture/refresh`. Nothing on the TV
-  signals a picture-setting change to an ordinary app, so clients that see a
-  picture mode, input or content mode change (gRPC push) should request a
-  refresh.
+- Read cadence: when the panel turns on, then every `poll_s` while it is on
+  (1 min while unavailable). Below 60 s each tick reads only the `watch`
+  targets (one call each) and a full read happens once a minute; at 60 s and
+  above every tick is a full read. With `event_refresh`, an HDR change
+  triggers a full read. The agent re-reads after its own writes. Nothing on
+  the TV signals a picture-setting change to an ordinary app, so clients that
+  see a picture mode, input or content mode change (gRPC push) should call
+  `POST /v1/picture/refresh`. Nothing runs while the panel is off.
 
 ## `POST /v1/picture/refresh`
 
 Bearer-authenticated. Queues an immediate REST re-read (coalesced with one
 already queued) and answers `{"queued": true}` at once; the result arrives as
 a normal `state` event if anything changed. 405 for other methods.
+
+## `POST /v1/picture/config`
+
+Bearer. Body `{"poll_s": 60, "event_refresh": true, "watch": ["contrast"]}`;
+every key optional (an absent key keeps the stored value). `poll_s` is clamped
+to 10–3600. Stored on the TV, so it survives restarts and standby; reported
+back in `rest`. Clients re-send it on every connection. Answers the effective
+settings.
+
+## `POST /v1/picture`
+
+Bearer. Body `{"target": "contrast", "value": "91"}`. Validated against the
+last read: unknown target 404 `unknown_target`, `available: false` 409
+`target_unavailable`, value outside the candidates 400 `invalid_value`. Then
+written with the stored credential; a rejected cookie is renewed once and the
+write retried. No credential, or rejected: 403 `rest_unauthorized` (and
+`write_authorized` turns false). IP control not answering: 503
+`rest_unavailable`. Success `{"ok": true}`, followed by a re-read.
+
+## `POST /v1/power_saving?mode=off|low|high`
+
+Bearer. Same error handling as `POST /v1/picture`.
+
+## `POST /v1/rest/register`
+
+Bearer. Normal authentication with the TV's REST API, in two steps:
+
+1. Without parameters: the TV shows a registration PIN on screen. Answers
+   `{"status": "pin_shown"}`. (`{"status": "registered"}` if the TV asks for
+   no authentication; 409 `normal_auth_not_supported` when the TV's
+   IP-control authentication setting does not include Normal; 503
+   `rest_unavailable`.)
+2. `?pin=NNNN` with the PIN from the screen: answers
+   `{"status": "registered"}` and stores the session cookie (replacing any
+   pre-shared key); 403 `pin_rejected` for a wrong PIN.
+
+The PIN, the cookie and any key are never returned, logged or shown.
+
+## `POST /v1/rest/psk`
+
+Bearer. Body `{"psk": "..."}`: stores a pre-shared key (replacing any cookie)
+and verifies it with a read that requires it. Answers
+`{"write_authorized": true|false}`.
+
+## `DELETE /v1/rest/auth`
+
+Bearer. Forgets the stored credential.
 
 ## `GET /v1/events`
 

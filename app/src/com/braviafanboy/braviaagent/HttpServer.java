@@ -25,6 +25,12 @@ public final class HttpServer extends NanoHTTPD {
     private static final String TAG = "BraviaAgent";
     public static final int CONTRACT = 1;
     public static final String PICTURE_REFRESH_PATH = "/v1/picture/refresh";
+    public static final String PICTURE_PATH = "/v1/picture";
+    public static final String PICTURE_CONFIG_PATH = "/v1/picture/config";
+    public static final String POWER_SAVING_PATH = "/v1/power_saving";
+    public static final String REST_REGISTER_PATH = "/v1/rest/register";
+    public static final String REST_AUTH_PATH = "/v1/rest/auth";
+    public static final String REST_PSK_PATH = "/v1/rest/psk";
     private static final long HEARTBEAT_MS = 30000;
     private static final int QUEUE_DEPTH = 16;
 
@@ -34,6 +40,8 @@ public final class HttpServer extends NanoHTTPD {
     private final MediaReader media;
     private final Pairing pairing;
     private final PictureReader picture;
+    private RestClient rest;
+    private RestAuth restAuth;
     private final Updater updater;
     private final java.util.Set<Thread> streams = java.util.Collections.synchronizedSet(new java.util.HashSet<>());
 
@@ -50,6 +58,12 @@ public final class HttpServer extends NanoHTTPD {
         this.pairing = pairing;
         this.picture = picture;
         this.updater = new Updater(context);
+    }
+
+    /** The REST client and credential store used by the registration endpoints. */
+    public void setRest(RestClient rest, RestAuth auth) {
+        this.rest = rest;
+        this.restAuth = auth;
     }
 
     @Override
@@ -73,6 +87,12 @@ public final class HttpServer extends NanoHTTPD {
         }
         if ("/v1/update".equals(path)) return update(session);
         if (PICTURE_REFRESH_PATH.equals(path)) return pictureRefresh(session);
+        if (PICTURE_PATH.equals(path)) return pictureWrite(session);
+        if (PICTURE_CONFIG_PATH.equals(path)) return pictureConfig(session);
+        if (POWER_SAVING_PATH.equals(path)) return powerSaving(session);
+        if (REST_REGISTER_PATH.equals(path)) return restRegister(session);
+        if (REST_AUTH_PATH.equals(path)) return restForget(session);
+        if (REST_PSK_PATH.equals(path)) return restPsk(session);
         if (session.getMethod() != Method.GET) return error(Response.Status.METHOD_NOT_ALLOWED, "method_not_allowed");
         switch (path) {
             case "/v1/state": return json(store.snapshot());
@@ -126,6 +146,146 @@ public final class HttpServer extends NanoHTTPD {
         picture.refresh();
         JSONObject o = new JSONObject();
         try { o.put("queued", true); } catch (Exception ignored) { }
+        return json(o);
+    }
+
+    /** POST /v1/picture {"target", "value"}: write one picture target (validated against the last read). */
+    private Response pictureWrite(IHTTPSession session) {
+        if (session.getMethod() != Method.POST) return error(Response.Status.METHOD_NOT_ALLOWED, "method_not_allowed");
+        JSONObject body = body(session);
+        if (picture == null) return error(Response.Status.NOT_FOUND, "not_found");
+        if (body == null || !body.has("target") || !body.has("value")) return error(Response.Status.BAD_REQUEST, "target_and_value_required");
+        try {
+            picture.writeTarget(body.optString("target"), body.optString("value"));
+        } catch (PictureReader.WriteException e) {
+            return writeError(e.code);
+        }
+        return ok();
+    }
+
+    /** POST /v1/power_saving?mode=off|low|high */
+    private Response powerSaving(IHTTPSession session) {
+        if (session.getMethod() != Method.POST) return error(Response.Status.METHOD_NOT_ALLOWED, "method_not_allowed");
+        String mode = param(session, "mode");
+        if (picture == null) return error(Response.Status.NOT_FOUND, "not_found");
+        if (mode == null) return error(Response.Status.BAD_REQUEST, "mode_required");
+        try {
+            picture.writePowerSaving(mode);
+        } catch (PictureReader.WriteException e) {
+            return writeError(e.code);
+        }
+        return ok();
+    }
+
+    /** POST /v1/picture/config {"poll_s", "event_refresh", "watch": [...]}: refresh settings, stored on the TV. */
+    private Response pictureConfig(IHTTPSession session) {
+        if (session.getMethod() != Method.POST) return error(Response.Status.METHOD_NOT_ALLOWED, "method_not_allowed");
+        JSONObject body = body(session);
+        if (picture == null) return error(Response.Status.NOT_FOUND, "not_found");
+        if (body == null) return error(Response.Status.BAD_REQUEST, "json_body_required");
+        Integer pollS = body.has("poll_s") ? body.optInt("poll_s", PictureReader.DEFAULT_POLL_S) : null;
+        Boolean eventRefresh = body.has("event_refresh") ? body.optBoolean("event_refresh", true) : null;
+        java.util.List<String> watch = null;
+        JSONArray w = body.optJSONArray("watch");
+        if (w != null) {
+            watch = new java.util.ArrayList<>();
+            for (int i = 0; i < w.length(); i++) watch.add(w.optString(i));
+        }
+        int effective = picture.configure(pollS, eventRefresh, watch);
+        JSONObject o = new JSONObject();
+        try {
+            o.put("poll_s", effective);
+            o.put("event_refresh", picture.eventRefresh());
+            o.put("watch", new JSONArray(picture.watched()));
+        } catch (Exception ignored) { }
+        return json(o);
+    }
+
+    /**
+     * POST /v1/rest/register: ask the TV to show a registration PIN.
+     * POST /v1/rest/register?pin=NNNN: complete it with the PIN the TV showed.
+     */
+    private Response restRegister(IHTTPSession session) {
+        if (session.getMethod() != Method.POST) return error(Response.Status.METHOD_NOT_ALLOWED, "method_not_allowed");
+        if (rest == null || restAuth == null) return error(Response.Status.NOT_FOUND, "not_found");
+        String pin = param(session, "pin");
+        RestAuth.Outcome outcome;
+        if (pin == null) {
+            outcome = restAuth.beginRegister(rest);
+        } else {
+            if (!pin.matches("\\d{1,8}")) return error(Response.Status.BAD_REQUEST, "pin_digits_required");
+            outcome = restAuth.completeRegister(rest, pin);
+        }
+        if (picture != null) picture.publish();
+        switch (outcome) {
+            case PIN_SHOWN: return status("pin_shown");
+            case REGISTERED: return status("registered");
+            case PIN_REJECTED: return error(Response.Status.FORBIDDEN, "pin_rejected");
+            case UNAVAILABLE: return error(Response.Status.SERVICE_UNAVAILABLE, "rest_unavailable");
+            default: return error(Response.Status.CONFLICT, "normal_auth_not_supported");
+        }
+    }
+
+    /** DELETE /v1/rest/auth: forget the REST credential. */
+    private Response restForget(IHTTPSession session) {
+        if (session.getMethod() != Method.DELETE) return error(Response.Status.METHOD_NOT_ALLOWED, "method_not_allowed");
+        if (restAuth == null) return error(Response.Status.NOT_FOUND, "not_found");
+        restAuth.forget();
+        if (picture != null) picture.publish();
+        return ok();
+    }
+
+    /** POST /v1/rest/psk {"psk"}: store a pre-shared key and verify it. */
+    private Response restPsk(IHTTPSession session) {
+        if (session.getMethod() != Method.POST) return error(Response.Status.METHOD_NOT_ALLOWED, "method_not_allowed");
+        if (rest == null || restAuth == null) return error(Response.Status.NOT_FOUND, "not_found");
+        JSONObject body = body(session);
+        String psk = body == null ? null : body.optString("psk", null);
+        if (psk == null || psk.isEmpty()) return error(Response.Status.BAD_REQUEST, "psk_required");
+        restAuth.setPsk(psk);
+        boolean ok = restAuth.verify(rest);
+        if (picture != null) picture.publish();
+        JSONObject o = new JSONObject();
+        try { o.put("write_authorized", ok); } catch (Exception ignored) { }
+        return json(o);
+    }
+
+    private Response writeError(String code) {
+        switch (code) {
+            case "rest_unavailable": return error(Response.Status.SERVICE_UNAVAILABLE, code);
+            case "rest_unauthorized": return error(Response.Status.FORBIDDEN, code);
+            case "unknown_target": return error(Response.Status.NOT_FOUND, code);
+            case "target_unavailable": return error(Response.Status.CONFLICT, code);
+            case "invalid_value": return error(Response.Status.BAD_REQUEST, code);
+            default: return error(Response.Status.INTERNAL_ERROR, code);
+        }
+    }
+
+    private static String param(IHTTPSession session, String name) {
+        java.util.List<String> v = session.getParameters().get(name);
+        return v == null || v.isEmpty() ? null : v.get(0);
+    }
+
+    private static JSONObject body(IHTTPSession session) {
+        try {
+            java.util.Map<String, String> files = new java.util.HashMap<>();
+            session.parseBody(files);
+            String raw = files.get("postData");
+            return raw == null || raw.isEmpty() ? null : new JSONObject(raw);
+        } catch (Exception e) {
+            return null;
+        }
+    }
+
+    private Response ok() {
+        JSONObject o = new JSONObject();
+        try { o.put("ok", true); } catch (Exception ignored) { }
+        return json(o);
+    }
+
+    private Response status(String s) {
+        JSONObject o = new JSONObject();
+        try { o.put("status", s); } catch (Exception ignored) { }
         return json(o);
     }
 

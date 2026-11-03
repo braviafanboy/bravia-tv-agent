@@ -158,7 +158,7 @@ block, without which the Living Decor provider query returns a null cursor
 | 2 ✅ | Bluetooth (remote battery), Living Decor themes, Sony settings dump → chosen keys | provider stability across launcher versions |
 | 3 ✅ (soak pending) | Bearer token, Wi-Fi block, hardening (reconnect, memory, doze on standby) | long-running stability over weeks |
 | HA ✅ (unit-tested; live VM check pending) | Integration support: probe on the TV's host, pairing (cloud deep link / local launch), SSE, sensors, now-playing, theme select — commit in bravia-tv-grpc-homeassistant main | — |
-| R1 ✅ (0.2.9, local) · R2–R3 planned | REST picture channel: agent-relayed reads (no auth), Normal-auth PIN registration, writes, integration entities — see *REST picture channel plan* | reads on the live TV; PIN flow with the user present; CPU unchanged |
+| R1 ✅ · R2 ✅ except PIN test (0.3.0, local) · R3 planned | REST picture channel: agent-relayed reads (no auth), Normal-auth PIN registration, writes, integration entities — see *REST picture channel plan* | reads on the live TV; PIN flow with the user present; CPU unchanged |
 
 ## Phase 0 findings (2026-11-02, BRAVIA 8 II, Android 14)
 
@@ -334,6 +334,14 @@ Design rationale and every verified fact behind it: `bravia-research/docs/rest-i
 - **Endpoints** (bearer): `POST /v1/rest/register` (begin), `POST /v1/rest/register?pin=NNNN` (complete), `DELETE /v1/rest/auth` (forget), `POST /v1/rest/psk`, `POST /v1/picture` (`{"target","value"}`, validated against candidates), `POST /v1/power_saving?mode=`.
 - **Verify live, with the user present** (the PIN dialog covers the screen): register, cookie Max-Age, a visible write and restore, renewal, survival across `adb install -r`.
 - Release as agent **0.3.0**.
+
+**R2 findings (2026-11-03, agent 0.3.0, live, nothing shown on screen):**
+
+- Implemented: `RestAuth` (Normal-auth registration, cookie with Max-Age, weekly renewal when < 7 days remain, PSK fallback, verification via `system.getSystemInformation`, app-private prefs), credential headers and auth-cookie capture in `RestClient` (a 401 is the API's challenge, never "wrong endpoint"), validated writes and power saving in `PictureReader`, the refresh settings (`poll_s`, `event_refresh`, `watch`) stored on the TV, an HDR-change trigger from `DisplayReader`, the endpoints in the contract, and adb-only maintenance commands via `Service.dump()` (DUMP permission, i.e. the adb shell; run on a worker because `dump()` is on the main thread).
+- Verified with the pre-shared key over HTTP: no credential → `rest_unauthorized`; key verified; no-op writes (contrast 90 → 90, power saving off → off) accepted and `write_authorized` turned true; wrong key → verification false and writes refused; validation refused out-of-range, unknown and unavailable targets (`autoLuminanceLevel` while the master switch is off) and an invalid power-saving mode. The stored credential survives `adb install -r`. No secret appears in logcat. Key forgotten afterwards.
+- Measured webapi cost: 60 s, no watch → 22 ticks / 120 s (0.18% of a core, two full reads as predicted); 10 s watching two targets → 28 ticks / 120 s (0.23%), so each watched target at 10 s adds ~0.025%, cheaper than estimated.
+- Home Assistant (integration 0.3.0) unaffected: agent online, 11 endpoints, sensors updating.
+- **Still to do with the user at the TV:** Normal-auth registration (`rest register` shows the PIN, `rest pin NNNN`), the cookie's Max-Age, `rest renew`, one visible write and restore; the TV's IP-control Authentication should be *Normal and Pre-Shared Key*. Not exercised: the HDR trigger (needs HDR content), HTTPS mode with this build (the TV is in HTTP mode).
 
 ### R3 — integration
 

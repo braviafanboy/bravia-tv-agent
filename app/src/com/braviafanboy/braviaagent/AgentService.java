@@ -39,7 +39,7 @@ public final class AgentService extends Service implements HttpServer.InfoProvid
     private static final int NOTIFICATION_ID = 1;
     public static final int PORT = 8585;
     public static final String SERVICE_TYPE = "_bravia-agent._tcp";
-    public static final String VERSION = "0.2.9";
+    public static final String VERSION = "0.3.0";
 
     private static volatile AgentService instance;
 
@@ -58,6 +58,8 @@ public final class AgentService extends Service implements HttpServer.InfoProvid
     private SettingsReader settings;
     private ThemesReader themes;
     private PictureReader picture;
+    private RestClient rest;
+    private RestAuth restAuth;
     private NsdManager nsd;
     private NsdManager.RegistrationListener registration;
     private String registeredId;
@@ -97,13 +99,17 @@ public final class AgentService extends Service implements HttpServer.InfoProvid
         bluetooth = new BluetoothReader(this, store);
         wifi = new WifiReader(this, store);
         settings = new SettingsReader(this, store);
-        picture = new PictureReader(store, new RestClient());
+        rest = new RestClient();
+        restAuth = new RestAuth(this);
+        picture = new PictureReader(this, store, rest, restAuth);
         display.setPanelListener(this::onPanelChanged);
+        display.setHdrListener(hdr -> picture.onHdrChanged());
         display.start();
         inputs.start();
         identity.start();
         if (display.isPanelOn()) resumeReaders(); else Log.i(TAG, "panel off at start: readers paused");
         server = new HttpServer(this, PORT, store, themes, this, media, pairing, picture);
+        server.setRest(rest, restAuth);
         try {
             tls = Tls.load(this);
             server.makeSecure(tls.serverSocketFactory(), null);
@@ -144,6 +150,92 @@ public final class AgentService extends Service implements HttpServer.InfoProvid
         identity.stop();
         instance = null;
         super.onDestroy();
+    }
+
+    /**
+     * adb-only maintenance and test commands:
+     * {@code adb shell dumpsys activity service com.braviafanboy.braviaagent/.AgentService <cmd>}.
+     * The system only lets callers holding DUMP (the adb shell, system) reach
+     * this, so it is never exposed on the network. Secrets are never printed.
+     *
+     * <pre>
+     *   (no args)                       status
+     *   rest register | rest pin NNNN   Normal-auth registration (shows a PIN on the TV)
+     *   rest psk KEY | rest verify | rest renew | rest forget
+     *   picture refresh | picture get TARGET | picture set TARGET VALUE
+     *   picture config POLL_S EVENT_REFRESH(true|false) [T1,T2,...]
+     *   power_saving off|low|high
+     * </pre>
+     */
+    @Override
+    protected void dump(java.io.FileDescriptor fd, java.io.PrintWriter out, String[] args) {
+        // dump() runs on the main thread, where network calls are refused: run
+        // the command on a worker and wait for it (bounded).
+        java.io.StringWriter buf = new java.io.StringWriter();
+        Thread worker = new Thread(() -> runDumpCommand(new java.io.PrintWriter(buf, true), args), "agent-dump");
+        worker.start();
+        try { worker.join(15000); } catch (InterruptedException ignored) { }
+        out.print(buf);
+        if (worker.isAlive()) out.println("timed out (still running)");
+    }
+
+    private void runDumpCommand(java.io.PrintWriter pw, String[] args) {
+        String cmd = args.length > 0 ? args[0] : "";
+        String sub = args.length > 1 ? args[1] : "";
+        try {
+            if ("rest".equals(cmd)) {
+                switch (sub) {
+                    case "register": pw.println(restAuth.beginRegister(rest)); break;
+                    case "pin": pw.println(args.length > 2 ? restAuth.completeRegister(rest, args[2]) : "usage: rest pin NNNN"); break;
+                    case "psk":
+                        if (args.length < 3) { pw.println("usage: rest psk KEY"); break; }
+                        restAuth.setPsk(args[2]);
+                        pw.println("verified=" + restAuth.verify(rest));
+                        break;
+                    case "verify": pw.println("verified=" + restAuth.verify(rest)); break;
+                    case "renew": pw.println("renewed=" + restAuth.renew(rest)); break;
+                    case "forget": restAuth.forget(); pw.println("forgotten"); break;
+                    default: break;
+                }
+                picture.publish();
+            } else if ("picture".equals(cmd)) {
+                switch (sub) {
+                    case "refresh": picture.refresh(); pw.println("queued"); break;
+                    case "get": {
+                        Object p = store.snapshot().opt("picture");
+                        org.json.JSONObject targets = p instanceof org.json.JSONObject ? ((org.json.JSONObject) p).optJSONObject("targets") : null;
+                        pw.println(targets == null || args.length < 3 ? "no data" : String.valueOf(targets.opt(args[2])));
+                        break;
+                    }
+                    case "set":
+                        if (args.length < 4) { pw.println("usage: picture set TARGET VALUE"); break; }
+                        try { picture.writeTarget(args[2], args[3]); pw.println("ok"); }
+                        catch (PictureReader.WriteException e) { pw.println("refused: " + e.code); }
+                        break;
+                    case "config": {
+                        Integer poll = args.length > 2 ? Integer.valueOf(args[2]) : null;
+                        Boolean ev = args.length > 3 ? Boolean.valueOf(args[3]) : null;
+                        java.util.List<String> watch = args.length > 4 ? Arrays.asList(args[4].split(",")) : null;
+                        pw.println("poll_s=" + picture.configure(poll, ev, watch));
+                        break;
+                    }
+                    default: break;
+                }
+            } else if ("power_saving".equals(cmd) && !sub.isEmpty()) {
+                try { picture.writePowerSaving(sub); pw.println("ok"); }
+                catch (PictureReader.WriteException e) { pw.println("refused: " + e.code); }
+            }
+        } catch (Exception e) {
+            pw.println("error: " + e);
+        }
+        JSONObject snap = store.snapshot();
+        pw.println("version " + VERSION + ", paired " + pairing.isPaired());
+        pw.println("rest " + snap.opt("rest"));
+        pw.println("power_saving " + snap.opt("power_saving"));
+        Object p = snap.opt("picture");
+        if (p instanceof JSONObject && ((JSONObject) p).optJSONObject("targets") != null) {
+            pw.println("picture targets " + ((JSONObject) p).optJSONObject("targets").length());
+        }
     }
 
     @Override
@@ -243,7 +335,9 @@ public final class AgentService extends Service implements HttpServer.InfoProvid
             Updater u = new Updater(this);
             upd.put("pending_version", u.pendingUrl() == null ? JSONObject.NULL : u.pendingVersion());
             o.put("update", upd);
-            o.put("endpoints", new JSONArray(Arrays.asList("/v1/state", "/v1/events", "/v1/themes", MediaReader.ARTWORK_PATH, HttpServer.PICTURE_REFRESH_PATH)));
+            o.put("endpoints", new JSONArray(Arrays.asList("/v1/state", "/v1/events", "/v1/themes", MediaReader.ARTWORK_PATH,
+                HttpServer.PICTURE_REFRESH_PATH, HttpServer.PICTURE_PATH, HttpServer.PICTURE_CONFIG_PATH,
+                HttpServer.POWER_SAVING_PATH, HttpServer.REST_REGISTER_PATH, HttpServer.REST_AUTH_PATH, HttpServer.REST_PSK_PATH)));
         } catch (Exception ignored) {
         }
         return o;
