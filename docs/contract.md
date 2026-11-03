@@ -121,10 +121,14 @@ Field notes:
   the agent's status screen). With access, the block is always present:
   `state` is `none` and `active` false when no app holds a media session.
   `position_s` is extrapolated from the session's last update and refreshed
-  every 10 s while playing; `artwork_url` is set only while a PNG is available
-  from `GET /v1/media/artwork` (404 otherwise, max 512 px) and carries a
-  `?v=<n>` revision that changes with every new image, so clients can cache
-  on the full URL.
+  every 10 s while playing and while a client holds `/v1/events`;
+  `artwork_url` is set only while an image is available from
+  `GET /v1/media/artwork` (404 otherwise; WebP, max 320 px, encoded on first
+  fetch) and carries a `?v=<n>` revision that changes with every new image,
+  so clients can cache on the full URL.
+- `environment.temperature_c` is `null` only until the sensor has ever
+  reported (it is on-change in 0.5 °C steps and sends no initial value); the
+  last value survives agent restarts.
 - `bluetooth` is `null` until BLUETOOTH_CONNECT is granted (the status screen
   asks on launch). `remote` is the first bonded HID device; `connected` comes
   from the system GATT / A2DP / Headset connection lists; `battery_pct` for

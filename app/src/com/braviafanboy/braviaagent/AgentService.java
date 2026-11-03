@@ -38,7 +38,7 @@ public final class AgentService extends Service implements HttpServer.InfoProvid
     private static final int NOTIFICATION_ID = 1;
     public static final int PORT = 8585;
     public static final String SERVICE_TYPE = "_bravia-agent._tcp";
-    public static final String VERSION = "0.2.2";
+    public static final String VERSION = "0.2.3";
 
     private static volatile AgentService instance;
 
@@ -93,15 +93,11 @@ public final class AgentService extends Service implements HttpServer.InfoProvid
         bluetooth = new BluetoothReader(this, store);
         wifi = new WifiReader(this, store);
         settings = new SettingsReader(this, store);
-        environment.start();
+        display.setPanelListener(this::onPanelChanged);
         display.start();
         inputs.start();
-        audio.start();
-        media.start();
-        bluetooth.start();
-        wifi.start();
-        settings.start();
         identity.start();
+        if (display.isPanelOn()) resumeReaders(); else Log.i(TAG, "panel off at start: readers paused");
         server = new HttpServer(PORT, store, themes, this, media, pairing);
         try {
             tls = Tls.load(this);
@@ -137,14 +133,9 @@ public final class AgentService extends Service implements HttpServer.InfoProvid
     public void onDestroy() {
         unregisterMdns();
         if (server != null) server.stop();
-        environment.stop();
+        pauseReaders();
         display.stop();
         inputs.stop();
-        audio.stop();
-        media.stop();
-        bluetooth.stop();
-        wifi.stop();
-        settings.stop();
         identity.stop();
         instance = null;
         super.onDestroy();
@@ -169,6 +160,41 @@ public final class AgentService extends Service implements HttpServer.InfoProvid
             if (media != null) media.recheckPermission();
             if (bluetooth != null) bluetooth.recheckPermission();
         });
+    }
+
+    private boolean readersRunning;
+
+    /**
+     * While the panel is off (standby, Picture Off) the TV has nothing new to
+     * report and the LAN is usually gone; stop sampling sensors and polling
+     * so the agent is idle, and pick everything up again on wake.
+     */
+    private void onPanelChanged(boolean on) {
+        if (on) resumeReaders(); else pauseReaders();
+    }
+
+    private void resumeReaders() {
+        if (readersRunning) return;
+        readersRunning = true;
+        environment.start();
+        audio.start();
+        wifi.start();
+        settings.start();
+        media.start();
+        bluetooth.start();
+        Log.i(TAG, "readers running");
+    }
+
+    private void pauseReaders() {
+        if (!readersRunning) return;
+        readersRunning = false;
+        environment.stop();
+        audio.stop();
+        wifi.stop();
+        settings.stop();
+        media.stop();
+        bluetooth.stop();
+        Log.i(TAG, "readers paused (panel off)");
     }
 
     /** Document for /v1/info. */

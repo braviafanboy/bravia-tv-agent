@@ -71,6 +71,11 @@ public final class StateStore {
         listeners.remove(l);
     }
 
+    /** Whether anyone is consuming change events (used to skip busywork). */
+    public synchronized boolean hasListeners() {
+        return !listeners.isEmpty();
+    }
+
     private void scheduleNotify() {
         if (notifyPending) return;
         notifyPending = true;

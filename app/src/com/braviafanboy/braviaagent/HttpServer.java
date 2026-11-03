@@ -55,6 +55,8 @@ public final class HttpServer extends NanoHTTPD {
 
     @Override
     public Response serve(IHTTPSession session) {
+        // Request threads yield to the TV's video pipeline.
+        android.os.Process.setThreadPriority(android.os.Process.THREAD_PRIORITY_BACKGROUND);
         String path = session.getUri();
         if ("/v1/pair".equals(path)) return pair(session);
         if (session.getMethod() != Method.GET) return error(Response.Status.METHOD_NOT_ALLOWED, "method_not_allowed");
@@ -73,9 +75,9 @@ public final class HttpServer extends NanoHTTPD {
             }
             case "/v1/events": return events();
             case MediaReader.ARTWORK_PATH: {
-                byte[] png = media == null ? null : media.artwork();
-                if (png == null) return error(Response.Status.NOT_FOUND, "no_artwork");
-                Response r = newFixedLengthResponse(Response.Status.OK, "image/png", new ByteArrayInputStream(png), png.length);
+                byte[] img = media == null ? null : media.artwork();
+                if (img == null) return error(Response.Status.NOT_FOUND, "no_artwork");
+                Response r = newFixedLengthResponse(Response.Status.OK, "image/webp", new ByteArrayInputStream(img), img.length);
                 r.addHeader("Cache-Control", "no-store");
                 return r;
             }
@@ -128,7 +130,9 @@ public final class HttpServer extends NanoHTTPD {
         final StateStore.Listener listener = snapshot -> queue.offer(stateEvent(snapshot));
         queue.offer(stateEvent(store.snapshot()));
         store.addListener(listener);
+        if (media != null) media.onClientSubscribed();
         Thread t = new Thread(() -> {
+            android.os.Process.setThreadPriority(android.os.Process.THREAD_PRIORITY_BACKGROUND);
             streams.add(Thread.currentThread());
             try {
                 while (!Thread.currentThread().isInterrupted()) {

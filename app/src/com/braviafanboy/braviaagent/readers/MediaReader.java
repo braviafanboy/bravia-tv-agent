@@ -32,7 +32,7 @@ public final class MediaReader {
     private static final String TAG = "BraviaAgent";
     private static final long TICK_MS = 10000;
     private static final long RECHECK_MS = 30000;
-    private static final int ARTWORK_MAX = 512;
+    private static final int ARTWORK_MAX = 320;
     public static final String ARTWORK_PATH = "/v1/media/artwork";
 
     private final StateStore store;
@@ -43,17 +43,15 @@ public final class MediaReader {
     private final List<MediaController> controllers = new ArrayList<>();
     private final List<MediaController.Callback> callbacks = new ArrayList<>();
     private boolean attached;
-    private volatile byte[] artwork;
+    // Artwork is encoded lazily, on the first fetch of a revision, off the
+    // main thread; the session's bitmap is only referenced until then.
     private Bitmap artworkSource;
     private int artworkRev;
+    private byte[] artworkBytes;
+    private int artworkBytesRev = -1;
 
     private final MediaSessionManager.OnActiveSessionsChangedListener sessions = this::attach;
-    private final Runnable tick = new Runnable() {
-        @Override public void run() {
-            publish();
-            handler.postDelayed(this, TICK_MS);
-        }
-    };
+    private final Runnable tick = this::publish;  // publish reschedules while playing and watched
     private final Runnable recheck = new Runnable() {
         @Override public void run() {
             recheckPermission();
@@ -68,12 +66,46 @@ public final class MediaReader {
         listener = new ComponentName(context, MediaListenerService.class);
     }
 
+    /** A client subscribed: resume position ticks if something is playing. */
+    public void onClientSubscribed() {
+        handler.post(this::publish);
+    }
+
     public boolean isGranted() {
         return notifications != null && notifications.isNotificationListenerAccessGranted(listener);
     }
 
+    /** Current artwork as WebP, encoded on demand; null when there is none. */
     public byte[] artwork() {
-        return artwork;
+        Bitmap bmp;
+        int rev;
+        synchronized (this) {
+            if (artworkSource == null) return null;
+            if (artworkBytes != null && artworkBytesRev == artworkRev) return artworkBytes;
+            bmp = artworkSource;
+            rev = artworkRev;
+        }
+        byte[] encoded = encode(bmp);
+        synchronized (this) {
+            if (rev == artworkRev) { artworkBytes = encoded; artworkBytesRev = rev; }
+        }
+        return encoded;
+    }
+
+    private static byte[] encode(Bitmap bmp) {
+        try {
+            Bitmap scaled = bmp;
+            int w = bmp.getWidth(), h = bmp.getHeight();
+            if (Math.max(w, h) > ARTWORK_MAX) {
+                float f = ARTWORK_MAX / (float) Math.max(w, h);
+                scaled = Bitmap.createScaledBitmap(bmp, Math.max(1, Math.round(w * f)), Math.max(1, Math.round(h * f)), true);
+            }
+            ByteArrayOutputStream out = new ByteArrayOutputStream();
+            scaled.compress(Bitmap.CompressFormat.WEBP_LOSSY, 80, out);
+            return out.toByteArray();
+        } catch (Exception e) {
+            return null;
+        }
     }
 
     public void start() {
@@ -181,8 +213,7 @@ public final class MediaReader {
                 o.put("position_s", JSONObject.NULL);
                 o.put("duration_s", JSONObject.NULL);
                 o.put("artwork_url", JSONObject.NULL);
-                artwork = null;
-                artworkSource = null;
+                synchronized (this) { artworkSource = null; artworkBytes = null; }
                 store.update("media", o);
                 return;
             }
@@ -209,19 +240,22 @@ public final class MediaReader {
             long dur = md == null ? 0 : md.getLong(MediaMetadata.METADATA_KEY_DURATION);
             o.put("duration_s", dur > 0 ? dur / 1000.0 : JSONObject.NULL);
             updateArtwork(md);
-            o.put("artwork_url", artwork == null ? JSONObject.NULL : ARTWORK_PATH + "?v=" + artworkRev);
+            synchronized (this) {
+                o.put("artwork_url", artworkSource == null ? JSONObject.NULL : ARTWORK_PATH + "?v=" + artworkRev);
+            }
             store.update("media", o);
-            if (playing) handler.postDelayed(tick, TICK_MS);
+            // Position ticks only matter to a connected client.
+            if (playing && store.hasListeners()) handler.postDelayed(tick, TICK_MS);
         } catch (Exception e) {
             Log.w(TAG, "media publish: " + e);
         }
     }
 
     /**
-     * Re-encode the artwork whenever the session hands us a different bitmap.
-     * Apps update metadata in steps (YouTube sends the new title before the
-     * new thumbnail), so the cache is keyed on the bitmap itself, and each
-     * new image bumps the revision carried in artwork_url so clients refetch.
+     * Track the session's artwork bitmap by identity. Apps update metadata in
+     * steps (YouTube sends the new title before the new thumbnail), so the
+     * revision carried in artwork_url bumps whenever a different bitmap
+     * object arrives; encoding happens later, only if a client fetches it.
      */
     private void updateArtwork(MediaMetadata md) {
         Bitmap bmp = null;
@@ -230,30 +264,11 @@ public final class MediaReader {
             if (bmp == null) bmp = md.getBitmap(MediaMetadata.METADATA_KEY_ALBUM_ART);
             if (bmp == null) bmp = md.getBitmap(MediaMetadata.METADATA_KEY_DISPLAY_ICON);
         }
-        if (bmp == null) {
-            artwork = null;
-            artworkSource = null;
-            return;
-        }
-        if (bmp == artworkSource && artwork != null) return;
-        if (artworkSource != null && bmp.getWidth() == artworkSource.getWidth()
-                && bmp.getHeight() == artworkSource.getHeight() && bmp.sameAs(artworkSource)) {
+        synchronized (this) {
+            if (bmp == artworkSource) return;
             artworkSource = bmp;
-            return;
-        }
-        try {
-            Bitmap scaled = bmp;
-            int w = bmp.getWidth(), h = bmp.getHeight();
-            if (Math.max(w, h) > ARTWORK_MAX) {
-                float f = ARTWORK_MAX / (float) Math.max(w, h);
-                scaled = Bitmap.createScaledBitmap(bmp, Math.max(1, Math.round(w * f)), Math.max(1, Math.round(h * f)), true);
-            }
-            ByteArrayOutputStream out = new ByteArrayOutputStream();
-            scaled.compress(Bitmap.CompressFormat.PNG, 90, out);
-            artwork = out.toByteArray();
-            artworkSource = bmp;
-            artworkRev++;
-        } catch (Exception ignored) {
+            artworkBytes = null;
+            if (bmp != null) artworkRev++;
         }
     }
 

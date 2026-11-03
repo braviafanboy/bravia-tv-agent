@@ -12,10 +12,16 @@ import org.json.JSONObject;
 
 /** Wi-Fi signal strength and link speed (no location permission, so no SSID). */
 public final class WifiReader {
-    private static final long POLL_MS = 30000;
+    private static final long POLL_MS = 120000;
 
     private final WifiManager manager;
+    private final android.net.ConnectivityManager connectivity;
     private final StateStore store;
+    private boolean callbackRegistered;
+    private final android.net.ConnectivityManager.NetworkCallback callback = new android.net.ConnectivityManager.NetworkCallback() {
+        @Override public void onAvailable(android.net.Network n) { handler.post(WifiReader.this::publish); }
+        @Override public void onLost(android.net.Network n) { handler.post(WifiReader.this::publish); }
+    };
     private final Handler handler = new Handler(Looper.getMainLooper());
     private final Runnable poll = new Runnable() {
         @Override public void run() {
@@ -27,14 +33,25 @@ public final class WifiReader {
     public WifiReader(Context context, StateStore store) {
         this.store = store;
         manager = (WifiManager) context.getApplicationContext().getSystemService(Context.WIFI_SERVICE);
+        connectivity = (android.net.ConnectivityManager) context.getApplicationContext().getSystemService(Context.CONNECTIVITY_SERVICE);
     }
 
     public void start() {
+        if (connectivity != null && !callbackRegistered) {
+            try {
+                connectivity.registerDefaultNetworkCallback(callback);
+                callbackRegistered = true;
+            } catch (Exception ignored) { }
+        }
         handler.post(poll);
     }
 
     public void stop() {
         handler.removeCallbacks(poll);
+        if (connectivity != null && callbackRegistered) {
+            try { connectivity.unregisterNetworkCallback(callback); } catch (Exception ignored) { }
+            callbackRegistered = false;
+        }
     }
 
     private void publish() {

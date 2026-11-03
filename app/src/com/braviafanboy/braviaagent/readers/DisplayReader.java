@@ -13,8 +13,23 @@ import org.json.JSONObject;
 
 /** Panel state, active mode and HDR support of the built-in display. */
 public final class DisplayReader implements DisplayManager.DisplayListener {
+    public interface PanelListener {
+        void onPanelChanged(boolean on);
+    }
+
     private final DisplayManager manager;
     private final StateStore store;
+    private PanelListener panelListener;
+    private Boolean lastOn;
+
+    public void setPanelListener(PanelListener l) {
+        panelListener = l;
+    }
+
+    public boolean isPanelOn() {
+        Display d = manager.getDisplay(Display.DEFAULT_DISPLAY);
+        return d != null && d.getState() == Display.STATE_ON;
+    }
 
     public DisplayReader(Context context, StateStore store) {
         this.store = store;
@@ -39,7 +54,12 @@ public final class DisplayReader implements DisplayManager.DisplayListener {
         try {
             JSONObject o = new JSONObject();
             int state = d.getState();
-            o.put("on", state == Display.STATE_ON);
+            boolean on = state == Display.STATE_ON;
+            o.put("on", on);
+            if (lastOn == null || lastOn != on) {
+                lastOn = on;
+                if (panelListener != null) panelListener.onPanelChanged(on);
+            }
             o.put("state", stateName(state));
             Display.Mode mode = d.getMode();
             o.put("width", mode.getPhysicalWidth());

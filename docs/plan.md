@@ -259,6 +259,34 @@ block, without which the Living Decor provider query returns a null cursor
   service, so the user opens the app once (README) or the integration's app
   launch does it.
 
+## Resource behaviour (0.2.3, measured 2026-11-03)
+
+The TV is sensitive to apps that spike CPU or I/O during video. Measured on
+the BRAVIA 8 II with YouTube playing and the integration's event stream
+connected: **0.0–0.5 % of one core** (`top`, 10 s windows; ~0.9 s of CPU over
+3 min), **17 MB PSS**, no wakelocks, no disk writes after pairing, all
+elevated-priority threads are ART internals. Measures taken in 0.2.3:
+
+- Light sensor at its slowest rate (1 Hz) instead of the 5 Hz default. The
+  temperature sensor delivers nothing at 1 Hz, so it keeps the default rate;
+  it is on-change (0.5 °C steps) and sends no initial value, so the last
+  value is persisted and seeded after a restart.
+- Audio: device callback plus the system volume/mute broadcasts, 60 s
+  fallback poll (was 5 s). Wi-Fi: default-network callback, 120 s fallback
+  (was 30 s). Sony settings: content observer plus 5 min fallback (was 60 s).
+- Now-playing position ticks (10 s) only while a client holds the event
+  stream; a new subscriber restarts them.
+- Artwork is encoded lazily on the first fetch of a revision, as WebP at
+  320 px (~13 KB, was PNG 512 px ~270 KB encoded eagerly per track), and
+  tracked by bitmap identity rather than a pixel comparison.
+- All readers pause while the panel is off (standby, Picture Off) and resume
+  on wake; only the display listener, HDMI inputs and the identity lookup
+  stay registered.
+- HTTP request threads, event writers and the settings reader run at
+  background priority.
+- Remote battery: one short GATT read every 6 h over the stack's existing
+  link, no held client (0.2.2).
+
 ## Open questions
 
 - Does the HTTP server keep its port after a Wi-Fi drop or IP change, and does
