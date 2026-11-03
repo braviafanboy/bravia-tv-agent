@@ -1,8 +1,11 @@
 name: Release
 
 # Builds, signs and publishes bravia-agent.apk for a version tag (v1.2.3).
-# Secrets: AGENT_KEYSTORE_B64 (base64 of release.keystore), AGENT_KEYSTORE_PASS.
-# The same key must sign every release, or Android refuses in-place updates.
+# Secrets live in the protected "release" environment (AGENT_KEYSTORE_B64 =
+# base64 of release.keystore, AGENT_KEYSTORE_PASS), which only this job on a
+# v* tag may use and which can require a reviewer's approval before the key
+# is exposed to the run. The same key must sign every release, or Android
+# refuses in-place updates.
 
 on:
   push:
@@ -14,6 +17,7 @@ permissions:
 jobs:
   release:
     runs-on: ubuntu-latest
+    environment: release
     steps:
       - uses: actions/checkout@v4
 
