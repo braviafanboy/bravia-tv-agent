@@ -158,6 +158,7 @@ block, without which the Living Decor provider query returns a null cursor
 | 2 ✅ | Bluetooth (remote battery), Living Decor themes, Sony settings dump → chosen keys | provider stability across launcher versions |
 | 3 ✅ (soak pending) | Bearer token, Wi-Fi block, hardening (reconnect, memory, doze on standby) | long-running stability over weeks |
 | HA ✅ (unit-tested; live VM check pending) | Integration support: probe on the TV's host, pairing (cloud deep link / local launch), SSE, sensors, now-playing, theme select — commit in bravia-tv-grpc-homeassistant main | — |
+| R1–R3 (planned) | REST picture channel: agent-relayed reads (no auth), Normal-auth PIN registration, writes, integration entities — see *REST picture channel plan* | reads on the live TV; PIN flow with the user present; CPU unchanged |
 
 ## Phase 0 findings (2026-11-02, BRAVIA 8 II, Android 14)
 
@@ -296,6 +297,54 @@ elevated-priority threads are ART internals. Measures taken in 0.2.3:
   background priority.
 - Remote battery: one short GATT read every 6 h over the stack's existing
   link, no held client (0.2.2).
+
+## REST picture channel plan (2026-11-03)
+
+Design rationale and every verified fact behind it: `bravia-research/docs/rest-ip-control.md`. Short form: the TV's REST IP-control API (the `webapi` package) is the only non-root route to the ~66 picture targets with no gRPC twin and the four Ambient Optimisation switches. Reads need no credential; writes need a Normal-auth cookie (one on-screen PIN, 14-day cookie, renewed by re-registering) or a PSK. The agent calls it on loopback and relays over its pinned link, so no TV credential ever reaches Home Assistant.
+
+### R1 — agent: read tier (no auth, no user involvement)
+
+- **`RestClient`** (new). JSON-RPC `call(service, method, version, params)` to `127.0.0.1`. Scheme by probing: HTTPS 443 first, HTTP 80 if 443 is unavailable (the TV's default is region-enforced; EU sets serve HTTPS only and answer 403 on 80). The webapi certificate is self-signed by "Sony TV Root CA" and regenerated when the mode changes, so on loopback it is accepted without verification (loopback cannot be intercepted from the LAN); never used for any other host. 3 s timeouts, one background-priority worker, errors mapped to `Unavailable`, `AuthRequired` (401/403 JSON-RPC), `SchemeMismatch` (nginx 403 on 80).
+- **`PictureReader`** (new reader). One `video.getPictureQualitySettings` v1.1 call with empty params returns all targets with value, availability and candidates; plus `system.getPowerSavingMode`. Runs on panel-on resume, every 5 min while the panel is on, on demand, and right after an agent write. Publishes only on change. Paused with the other readers when the panel is off.
+- **State** (additive, contract stays v1):
+  - `rest`: `available`, `scheme` (`https`/`http`/null), `auth` (`none`/`cookie`/`psk`), `write_authorized`, `cookie_expires`.
+  - `picture.targets`: `{name: {value, available, candidates}}` exactly as the TV reports them.
+  - `power_saving`: `off`/`low`/`high`.
+- **Endpoint** `POST /v1/picture/refresh` (bearer). Listed in `info.endpoints`.
+- **Verify live:** all 68 targets read, scheme probe on this HTTPS set, candidate shapes for enum targets (only numeric ranges are confirmed so far), idle CPU with the 5-min poll measured the same way as *Resource behaviour*.
+
+### R2 — agent: auth and write tier
+
+- **`RestAuth`** (new), app-private prefs `rest`.
+  - Normal auth: `accessControl.actRegister` with `clientid` = a per-install UUID, `nickname` "BRAVIA agent", `level` `private`. Begin = call without credentials → 401 and the TV shows the PIN. Complete = same call with HTTP Basic `:<pin>` → `Set-Cookie: auth=…; Max-Age=1209600`; store cookie and expiry.
+  - Renewal: re-register with the cookie weekly and whenever under 7 days remain; a 401 on a write triggers one renewal attempt, then reports `write_authorized=false`.
+  - PSK fallback: stored only if the user supplies one; never both active.
+  - PIN, cookie and PSK never appear in state, info, logs or the status screen.
+- **Endpoints** (bearer): `POST /v1/rest/register` (begin), `POST /v1/rest/register?pin=NNNN` (complete), `DELETE /v1/rest/auth` (forget), `POST /v1/rest/psk`, `POST /v1/picture` (`{"target","value"}`, validated against candidates), `POST /v1/power_saving?mode=`.
+- **Verify live, with the user present** (the PIN dialog covers the screen): register, cookie Max-Age, a visible write and restore, renewal, survival across `adb install -r`.
+- Release as agent **0.3.0**.
+
+### R3 — integration
+
+- **Client** (`grpc/agent.py`): register begin/complete, forget, set PSK, set picture target, refresh, set power saving.
+- **Entities**, generated from candidates: numeric range → `number`, value list → `select`, on/off pair → `switch`. `brightness` and `pictureMode` are excluded (gRPC owns them, with push). Enabled by default: the four Ambient Optimisation switches, contrast, colour, sharpness, colour temperature, local dimming, peak luminance, Motionflow, Reality Creation. Everything else disabled by default, entity category *config*. Unavailable when the target reports `isAvailable=false` or REST is unavailable. Power saving mode as a `select`.
+- **Writes before authorisation** raise a translated error pointing at the repair below.
+- **Repairs:** `rest_unavailable` (IP control off or unreachable, with the menu path) and `rest_authorize` with a fix flow: *Start* → agent begins → form "Enter the PIN shown on the TV" → complete.
+- **Refresh trigger:** picture values are per picture mode, so the coordinator asks the agent to refresh (debounced 1 s) when gRPC push reports a change of picture mode, input or content mode.
+- **Diagnostics:** `rest` status only, no secrets. **Tests:** FakeAgent extensions, candidate→entity mapping, refresh trigger, unauthorised-write error, fix flow. README section.
+- Release as integration **0.4.0**, after agent 0.3.0; an older agent simply yields no picture entities.
+
+### Deferred
+
+- Direct REST client in the integration for agent-less setups (same entities, Normal auth with the cookie in the config entry).
+- Agent-side luminance LUT control loop (parked idea; would reuse the R2 write path with smoothing and hysteresis).
+- Wake-on-LAN mode, LED, reboot: check which need a credential once R2 exists.
+
+### Decisions needed before R3
+
+1. Controls present before authorisation (recommended: yes, writes fail with the repair link) versus read-only sensors until authorised.
+2. The default-enabled target set above.
+3. The 5-min poll plus gRPC-triggered refresh, versus a faster poll (no local change signal for picture settings was found; the SonySystemService listeners are certificate-gated).
 
 ## Open questions
 
