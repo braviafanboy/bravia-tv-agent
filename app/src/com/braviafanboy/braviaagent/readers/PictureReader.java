@@ -208,7 +208,16 @@ public final class PictureReader {
                 Log.w(TAG, "picture: getPowerSavingMode " + e.kind + " " + e.code);
             }
         }
+        int changed = 0;
         synchronized (this) {
+            if (avail && t != null && targets != null) {
+                java.util.Iterator<String> it = t.keys();
+                while (it.hasNext()) {
+                    String k = it.next();
+                    JSONObject a = t.optJSONObject(k), b = targets.optJSONObject(k);
+                    if (a == null || b == null || !a.toString().equals(b.toString())) changed++;
+                }
+            }
             available = avail;
             targets = avail ? t : null;
             powerSaving = avail ? ps : null;
@@ -221,6 +230,7 @@ public final class PictureReader {
             Log.i(TAG, "picture: " + summary);
             lastSummary = summary;
         }
+        if (changed > 0) Log.i(TAG, "picture: " + changed + " settings changed");
         publish();
         return avail;
     }

@@ -143,6 +143,7 @@ public final class HttpServer extends NanoHTTPD {
     private Response pictureRefresh(IHTTPSession session) {
         if (session.getMethod() != Method.POST) return error(Response.Status.METHOD_NOT_ALLOWED, "method_not_allowed");
         if (picture == null) return error(Response.Status.NOT_FOUND, "not_found");
+        log("picture: refresh requested");
         picture.refresh();
         JSONObject o = new JSONObject();
         try { o.put("queued", true); } catch (Exception ignored) { }
