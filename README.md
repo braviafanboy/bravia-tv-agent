@@ -64,21 +64,35 @@ TV (Android)                         Home Assistant
 
 ## Install
 
-1. Get `bravia-agent.apk` from the [releases](https://github.com/braviafanboy/bravia-tv-agent/releases)
-   and install it on the TV by any sideloading route: `adb install
-   bravia-agent.apk`, a downloader app on the TV pointed at the release URL,
-   or a USB stick with the TV's file manager. Confirm the install on screen.
-2. Nothing else is needed for the sensors: the integration finds the agent,
+Once, with adb (the TV has no built-in way to fetch and install an app, and
+Android requires the install to be confirmed on screen regardless):
+
+1. On the TV: Settings → System → About → select *Android TV OS build* seven
+   times to unlock Developer options, then Settings → System → Developer
+   options → *Network debugging* on. Note the TV's IP address.
+2. From a computer with the Android platform tools:
+
+   ```
+   adb connect <tv-ip>
+   adb install bravia-agent.apk
+   ```
+
+   Accept the *Allow debugging?* prompt on the TV the first time.
+3. Nothing else is needed for the sensors: the integration finds the agent,
    starts it silently, pairs with it and creates the entities.
-3. For now-playing and the remote's battery, grant *Notification access* and
+4. For now-playing and the remote's battery, grant *Notification access* and
    *Bluetooth* when the app asks. Reach the prompts with the **Agent setup**
    button in Home Assistant or by opening the app from the TV's launcher; the
-   status screen also shows what the agent currently serves. With adb:
-   `cmd notification allow_listener com.braviafanboy.braviaagent/.MediaListenerService`
-   and `pm grant com.braviafanboy.braviaagent android.permission.BLUETOOTH_CONNECT`.
+   status screen also shows what the agent currently serves. With adb still
+   connected: `adb shell cmd notification allow_listener
+   com.braviafanboy.braviaagent/.MediaListenerService` and
+   `adb shell pm grant com.braviafanboy.braviaagent android.permission.BLUETOOTH_CONNECT`.
 
-Updating keeps the pairing; uninstalling loses it and the integration simply
-pairs again. Not distributed through Google Play.
+Updating (`adb install -r`) keeps the pairing; uninstalling loses it and the
+integration simply pairs again. Network debugging can be switched off after
+installing. Not distributed through Google Play. Note for the record: Sony's
+bundled browser cannot download files, so a browser-based install is not an
+option on these TVs.
 
 ## License
 
