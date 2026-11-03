@@ -38,7 +38,7 @@ public final class AgentService extends Service implements HttpServer.InfoProvid
     private static final int NOTIFICATION_ID = 1;
     public static final int PORT = 8585;
     public static final String SERVICE_TYPE = "_bravia-agent._tcp";
-    public static final String VERSION = "0.2.5";
+    public static final String VERSION = "0.2.8";
 
     private static volatile AgentService instance;
 
@@ -79,6 +79,8 @@ public final class AgentService extends Service implements HttpServer.InfoProvid
         store = new StateStore();
         identity = new DeviceIdentity(this);
         pairing = new Pairing(this);
+        Updater staged = new Updater(this);
+        if (Updater.isApplied(staged.pendingVersion(), VERSION)) staged.clearPending();  // that update (or a newer one) is running
         pairing.setListener(() -> new android.os.Handler(getMainLooper()).post(() -> {
             registerMdns();
             if (server != null) server.closeStreams();
@@ -98,7 +100,7 @@ public final class AgentService extends Service implements HttpServer.InfoProvid
         inputs.start();
         identity.start();
         if (display.isPanelOn()) resumeReaders(); else Log.i(TAG, "panel off at start: readers paused");
-        server = new HttpServer(PORT, store, themes, this, media, pairing);
+        server = new HttpServer(this, PORT, store, themes, this, media, pairing);
         try {
             tls = Tls.load(this);
             server.makeSecure(tls.serverSocketFactory(), null);
@@ -224,7 +226,7 @@ public final class AgentService extends Service implements HttpServer.InfoProvid
             JSONObject perms = new JSONObject();
             perms.put("notification_access", media.isGranted());
             perms.put("bluetooth_connect", bluetooth.isGranted());
-            perms.put("usage_access", false);
+            perms.put("install_packages", getPackageManager().canRequestPackageInstalls());
             o.put("permissions", perms);
             JSONObject pair = new JSONObject();
             pair.put("paired", pairing.isPaired());
@@ -232,6 +234,10 @@ public final class AgentService extends Service implements HttpServer.InfoProvid
             pair.put("window_open", pairing.windowOpen());
             pair.put("window_seconds_left", pairing.windowSecondsLeft());
             o.put("pairing", pair);
+            JSONObject upd = new JSONObject();
+            Updater u = new Updater(this);
+            upd.put("pending_version", u.pendingUrl() == null ? JSONObject.NULL : u.pendingVersion());
+            o.put("update", upd);
             o.put("endpoints", new JSONArray(Arrays.asList("/v1/state", "/v1/events", "/v1/themes", MediaReader.ARTWORK_PATH)));
         } catch (Exception ignored) {
         }

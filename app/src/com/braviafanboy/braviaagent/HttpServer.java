@@ -31,19 +31,21 @@ public final class HttpServer extends NanoHTTPD {
     private final InfoProvider info;
     private final MediaReader media;
     private final Pairing pairing;
+    private final Updater updater;
     private final java.util.Set<Thread> streams = java.util.Collections.synchronizedSet(new java.util.HashSet<>());
 
     public interface InfoProvider {
         JSONObject info();
     }
 
-    public HttpServer(int port, StateStore store, ThemesReader themes, InfoProvider info, MediaReader media, Pairing pairing) {
+    public HttpServer(android.content.Context context, int port, StateStore store, ThemesReader themes, InfoProvider info, MediaReader media, Pairing pairing) {
         super(port);
         this.store = store;
         this.themes = themes;
         this.info = info;
         this.media = media;
         this.pairing = pairing;
+        this.updater = new Updater(context);
     }
 
     @Override
@@ -59,13 +61,14 @@ public final class HttpServer extends NanoHTTPD {
         android.os.Process.setThreadPriority(android.os.Process.THREAD_PRIORITY_BACKGROUND);
         String path = session.getUri();
         if ("/v1/pair".equals(path)) return pair(session);
-        if (session.getMethod() != Method.GET) return error(Response.Status.METHOD_NOT_ALLOWED, "method_not_allowed");
         if ("/v1/info".equals(path) || "/".equals(path)) return json(info.info());
         if (!pairing.authorized(session.getHeaders().get("authorization"))) {
             Response r = error(Response.Status.UNAUTHORIZED, "unauthorized");
             r.addHeader("WWW-Authenticate", "Bearer realm=\"bravia-agent\"");
             return r;
         }
+        if ("/v1/update".equals(path)) return update(session);
+        if (session.getMethod() != Method.GET) return error(Response.Status.METHOD_NOT_ALLOWED, "method_not_allowed");
         switch (path) {
             case "/v1/state": return json(store.snapshot());
             case "/v1/themes": {
@@ -95,6 +98,19 @@ public final class HttpServer extends NanoHTTPD {
         JSONObject o = new JSONObject();
         try { o.put("token", token); } catch (Exception ignored) { }
         log("paired " + name + " from " + session.getRemoteIpAddress());
+        return json(o);
+    }
+
+    /** POST /v1/update?url=&sha256=&version=: stage a self-update (run by UpdateActivity). */
+    private Response update(IHTTPSession session) {
+        if (session.getMethod() != Method.POST) return error(Response.Status.METHOD_NOT_ALLOWED, "method_not_allowed");
+        java.util.Map<String, java.util.List<String>> q = session.getParameters();
+        String url = q.containsKey("url") ? q.get("url").get(0) : null;
+        if (url == null || !(url.startsWith("https://") || url.startsWith("http://"))) return error(Response.Status.BAD_REQUEST, "url_required");
+        updater.setPending(url, q.containsKey("sha256") ? q.get("sha256").get(0) : null, q.containsKey("version") ? q.get("version").get(0) : null);
+        JSONObject o = new JSONObject();
+        try { o.put("pending", url); } catch (Exception ignored) { }
+        log("update staged: " + url);
         return json(o);
     }
 

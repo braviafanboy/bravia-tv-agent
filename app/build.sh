@@ -22,8 +22,16 @@ d8 --release --min-api 31 --lib "$PLATFORM/android.jar" --output "$OUT" $(find "
 cp "$OUT/base.apk" "$OUT/unsigned.apk"
 (cd "$OUT" && zip -q unsigned.apk classes.dex)
 zipalign -f 4 "$OUT/unsigned.apk" "$OUT/aligned.apk"
-KS=$HERE/debug.keystore
-[ -f "$KS" ] || keytool -genkeypair -v -keystore "$KS" -storepass android -keypass android -alias debug \
-  -keyalg RSA -keysize 2048 -validity 3650 -dname "CN=bravia-agent-debug" >/dev/null 2>&1
-apksigner sign --ks "$KS" --ks-pass pass:android --key-pass pass:android --out "$OUT/bravia-agent.apk" "$OUT/aligned.apk" 2>/dev/null
+# Signing: a release keystore when AGENT_KEYSTORE is set (CI, or a local
+# release build), else a throwaway debug keystore. Every published build must
+# use the same release key, or Android refuses in-place updates.
+if [ -n "${AGENT_KEYSTORE:-}" ]; then
+  KS=$AGENT_KEYSTORE; KSPASS=${AGENT_KEYSTORE_PASS:?}; ALIAS=${AGENT_KEY_ALIAS:-bravia-agent}; KEYPASS=${AGENT_KEY_PASS:-$KSPASS}
+else
+  KS=$HERE/debug.keystore; KSPASS=android; ALIAS=debug; KEYPASS=android
+  [ -f "$KS" ] || keytool -genkeypair -v -keystore "$KS" -storepass android -keypass android -alias debug \
+    -keyalg RSA -keysize 2048 -validity 3650 -dname "CN=bravia-agent-debug" >/dev/null 2>&1
+fi
+apksigner sign --ks "$KS" --ks-pass "pass:$KSPASS" --ks-key-alias "$ALIAS" --key-pass "pass:$KEYPASS" --out "$OUT/bravia-agent.apk" "$OUT/aligned.apk" 2>/dev/null
+shasum -a 256 "$OUT/bravia-agent.apk" 2>/dev/null | cut -d' ' -f1 > "$OUT/bravia-agent.apk.sha256" || sha256sum "$OUT/bravia-agent.apk" | cut -d' ' -f1 > "$OUT/bravia-agent.apk.sha256"
 echo "built $OUT/bravia-agent.apk"

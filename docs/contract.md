@@ -19,10 +19,11 @@ are JSON numbers; enums are lower-case strings.
   "permissions": {
     "notification_access": true,
     "bluetooth_connect": false,
-    "usage_access": false
+    "install_packages": true
   },
   "endpoints": ["/v1/state", "/v1/events", "/v1/themes", "/v1/media/artwork"],
   "pairing": {"paired": true, "paired_with": "Home Assistant", "window_open": false, "window_seconds_left": 0},
+  "update": {"pending_version": null},
   "tls": {"fingerprint_sha256": "0123abcd…"}
 }
 ```
@@ -40,6 +41,20 @@ fingerprint during pairing and pins it on every later connection; a
 different certificate (reinstall, factory reset) is treated like a rejected
 token and triggers a new pairing. The mDNS TXT carries `tls=1`. Plain HTTP is
 not served.
+
+## Self-update
+
+`POST /v1/update?url=<apk>&sha256=<hex>&version=<v>` (authenticated) stages an
+update; `info.update.pending_version` shows it. The integration then launches
+`braviaagent://update` (cloud deep link) or the app (local launch, which hands
+over when an update is pending): the updater downloads the APK, verifies the
+SHA-256, opens a package-installer session and shows Android's confirmation,
+which the user accepts on screen. The first time, Android also asks to allow
+the agent to install unknown apps (`permissions.install_packages`; the setup
+flow and DOWN on the status screen open that setting). Updates must be signed
+with the release key or Android refuses them; pairing and the certificate
+survive an in-place update. The release manifest the integration reads is
+`agent.json`: `{"version", "url", "sha256", "notes"}`.
 
 ## Authentication
 

@@ -6,7 +6,7 @@ cannot expose over its local gRPC control plane or the Sony cloud, to the
 integration. It has no purpose on its own: the integration defines the
 contract, discovers the agent on the LAN, and turns its data into entities.
 
-**Status: 0.2.3, phases 0–3 running on a BRAVIA 8 II and paired to the integration over pinned TLS; idle while the panel is off** (2026-11-02): foreground
+**Status: 0.2.8, phases 0–3 running on a BRAVIA 8 II, paired over pinned TLS, self-updating through Home Assistant; idle while the panel is off** (2026-11-02): foreground
 service, HTTP server on port 8585 with `/v1/info`, `/v1/state`, `/v1/themes`,
 `/v1/media/artwork` and the `/v1/events` stream, mDNS advert
 `_bravia-agent._tcp`, readers for environment, display, HDMI inputs, audio,
@@ -88,8 +88,11 @@ Android requires the install to be confirmed on screen regardless):
    com.braviafanboy.braviaagent/.MediaListenerService` and
    `adb shell pm grant com.braviafanboy.braviaagent android.permission.BLUETOOTH_CONNECT`.
 
-Updating (`adb install -r`) keeps the pairing; uninstalling loses it and the
-integration simply pairs again. Network debugging can be switched off after
+Updates arrive through Home Assistant: the integration shows an update entity
+for the agent, and installing it downloads the release and asks for a
+confirmation on the TV (the first time also for permission to install unknown
+apps). `adb install -r` works too. Both keep the pairing; uninstalling loses
+it and the integration simply pairs again. Network debugging can be switched off after
 installing. Not distributed through Google Play. Note for the record: Sony's
 bundled browser cannot download files, so a browser-based install is not an
 option on these TVs.

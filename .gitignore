@@ -9,3 +9,6 @@ local.properties
 *.keystore
 *.jks
 .DS_Store
+release.keystore
+release.keystore.pass
+release.keystore.b64

@@ -42,6 +42,13 @@ public final class StatusActivity extends Activity {
             return;
         }
         String host = referrer == null ? null : referrer.getHost();
+        boolean updateLink = data != null && "braviaagent".equals(data.getScheme()) && "update".equals(data.getHost());
+        if (updateLink || (host != null && host.startsWith("com.sony.") && new Updater(this).pendingUrl() != null)) {
+            // A self-update: hand over to the foreground updater.
+            startActivity(new Intent(this, UpdateActivity.class).setData(data));
+            finish();
+            return;
+        }
         boolean setupLink = data != null && "braviaagent".equals(data.getScheme()) && "setup".equals(data.getHost());
         if (!setupLink && host != null && host.startsWith("com.sony.")) {
             // Launched by the integration through DeviceControlService to pair
@@ -66,8 +73,8 @@ public final class StatusActivity extends Activity {
         setupFlow = setupLink;
         if (checkSelfPermission("android.permission.BLUETOOTH_CONNECT") != PackageManager.PERMISSION_GRANTED) {
             requestPermissions(new String[] {"android.permission.BLUETOOTH_CONNECT"}, 1);
-        } else if (setupFlow && !notificationAccessGranted()) {
-            openNotificationAccess();
+        } else if (setupFlow) {
+            continueSetup();
         }
     }
 
@@ -86,6 +93,24 @@ public final class StatusActivity extends Activity {
             new android.content.ComponentName(this, MediaListenerService.class));
     }
 
+    /** Next missing grant in the setup flow: notification access, then installs. */
+    private void continueSetup() {
+        if (!notificationAccessGranted()) {
+            openNotificationAccess();
+        } else if (!getPackageManager().canRequestPackageInstalls()) {
+            openInstallPermission();
+        }
+    }
+
+    /** Settings → "Install unknown apps" for this app (needed for self-update). */
+    private void openInstallPermission() {
+        try {
+            startActivity(new Intent(Settings.ACTION_MANAGE_UNKNOWN_APP_SOURCES, Uri.parse("package:" + getPackageName())));
+        } catch (Exception e) {
+            android.util.Log.w("BraviaAgent", "install permission settings: " + e);
+        }
+    }
+
     /** Settings → Apps → Special app access → Notification access, directly. */
     private void openNotificationAccess() {
         try {
@@ -99,13 +124,17 @@ public final class StatusActivity extends Activity {
     public void onRequestPermissionsResult(int requestCode, String[] permissions, int[] grantResults) {
         AgentService svc = AgentService.instance();
         if (svc != null) svc.onPermissionsMaybeChanged();
-        if (setupFlow && !notificationAccessGranted()) openNotificationAccess();
+        if (setupFlow) continueSetup();
     }
 
     /** OK / Select opens the Notification access screen for the media reader. */
     @Override
     public boolean onKeyDown(int keyCode, KeyEvent event) {
         AgentService svc = AgentService.instance();
+        if (keyCode == KeyEvent.KEYCODE_DPAD_DOWN) {
+            openInstallPermission();
+            return true;
+        }
         if (keyCode == KeyEvent.KEYCODE_DPAD_RIGHT && svc != null) {
             svc.pairing().openWindow();
             render();
@@ -141,7 +170,7 @@ public final class StatusActivity extends Activity {
         StringBuilder sb = new StringBuilder();
         sb.append("BRAVIA agent ").append(AgentService.VERSION)
           .append("  —  https://<tv>:").append(AgentService.PORT).append("/v1/state\n")
-          .append("OK: Notification access (now-playing)   RIGHT: open pairing window   hold LEFT: unpair\n\n");
+          .append("OK: Notification access (now-playing)   DOWN: allow updates   RIGHT: pairing window   hold LEFT: unpair\n\n");
         if (svc == null) {
             sb.append("service starting…");
         } else {

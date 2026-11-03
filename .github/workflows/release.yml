@@ -1,0 +1,75 @@
+name: Release
+
+# Builds, signs and publishes bravia-agent.apk for a version tag (v1.2.3).
+# Secrets: AGENT_KEYSTORE_B64 (base64 of release.keystore), AGENT_KEYSTORE_PASS.
+# The same key must sign every release, or Android refuses in-place updates.
+
+on:
+  push:
+    tags: ["v*"]
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+
+      - name: Android SDK (build-tools + platform)
+        run: |
+          set -eu
+          SDK=$HOME/android-sdk
+          mkdir -p "$SDK/cmdline-tools"
+          curl -fsSL -o /tmp/clt.zip https://dl.google.com/android/repository/commandlinetools-linux-11076708_latest.zip
+          unzip -q /tmp/clt.zip -d "$SDK/cmdline-tools"
+          mv "$SDK/cmdline-tools/cmdline-tools" "$SDK/cmdline-tools/latest"
+          yes | "$SDK/cmdline-tools/latest/bin/sdkmanager" --sdk_root="$SDK" --licenses >/dev/null
+          "$SDK/cmdline-tools/latest/bin/sdkmanager" --sdk_root="$SDK" "platforms;android-34" "build-tools;34.0.0" >/dev/null
+          echo "ANDROID_SDK_ROOT=$SDK" >> "$GITHUB_ENV"
+
+      - name: Check the tag matches the manifest version
+        run: |
+          set -eu
+          TAG=${GITHUB_REF_NAME#v}
+          MANIFEST=$(sed -n 's/.*android:versionName="\([^"]*\)".*/\1/p' app/AndroidManifest.xml)
+          [ "$TAG" = "$MANIFEST" ] || { echo "tag v$TAG but manifest versionName is $MANIFEST"; exit 1; }
+
+      - name: Build and sign
+        env:
+          AGENT_KEYSTORE_B64: ${{ secrets.AGENT_KEYSTORE_B64 }}
+          AGENT_KEYSTORE_PASS: ${{ secrets.AGENT_KEYSTORE_PASS }}
+        run: |
+          set -eu
+          echo "$AGENT_KEYSTORE_B64" | base64 -d > /tmp/release.keystore
+          AGENT_KEYSTORE=/tmp/release.keystore JAVA_HOME=$JAVA_HOME sh app/build.sh
+          rm -f /tmp/release.keystore
+
+      - name: Write the update manifest
+        run: |
+          set -eu
+          VERSION=${GITHUB_REF_NAME#v}
+          SHA=$(cat app/build/bravia-agent.apk.sha256)
+          URL="https://github.com/${GITHUB_REPOSITORY}/releases/download/${GITHUB_REF_NAME}/bravia-agent.apk"
+          NOTES=$(awk "/^## ${VERSION}/{f=1;next} /^## /{f=0} f" CHANGELOG.md 2>/dev/null | head -40 || true)
+          python3 - "$VERSION" "$URL" "$SHA" "$NOTES" <<'PY' > app/build/agent.json
+          import json, sys
+          v, u, s, n = sys.argv[1:5]
+          print(json.dumps({"version": v, "url": u, "sha256": s, "notes": n.strip()}, indent=2))
+          PY
+          cat app/build/agent.json
+
+      - name: Publish the release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: |
+            app/build/bravia-agent.apk
+            app/build/bravia-agent.apk.sha256
+            app/build/agent.json
+          generate_release_notes: true
