@@ -20,6 +20,7 @@ import org.json.JSONObject;
 public final class StatusActivity extends Activity {
     private final Handler handler = new Handler(Looper.getMainLooper());
     private TextView text;
+    private boolean launchedForPairing;
     private final Runnable refresh = new Runnable() {
         @Override public void run() {
             render();
@@ -54,11 +55,10 @@ public final class StatusActivity extends Activity {
     }
 
     /**
-     * Pairing entry points. A deep link {@code braviaagent://pair?token=...}
-     * (delivered by the integration through the Sony cloud) adopts the token
-     * outright. A launch by one of Sony's control services (the integration's
-     * local gRPC app launch; the referrer is then a com.sony.* package, not the
-     * launcher or the shell) opens the 60 s pairing window.
+     * A launch by one of Sony's control services (the integration's local gRPC
+     * app launch; the referrer is then a com.sony.* package, not the launcher
+     * or the shell) opens the 60 s pairing window; the screen closes itself
+     * when the window ends. The cloud deep link goes to PairActivity instead.
      */
     private void handleLaunch(Intent intent, Uri referrer) {
         android.util.Log.i("BraviaAgent", "launched with referrer " + referrer + " data " + (intent == null ? null : intent.getData()));
@@ -66,15 +66,13 @@ public final class StatusActivity extends Activity {
         handler.postDelayed(() -> {
             AgentService svc = AgentService.instance();
             if (svc == null) return;
-            Uri data = intent == null ? null : intent.getData();
-            if (data != null && "braviaagent".equals(data.getScheme()) && "pair".equals(data.getHost())) {
-                String token = data.getQueryParameter("token");
-                String name = data.getQueryParameter("name");
-                if (token != null) svc.pairing().adopt(token, name == null ? "deep_link" : name);
-                return;
-            }
             String host = referrer == null ? null : referrer.getHost();
-            if (host != null && host.startsWith("com.sony.")) svc.pairing().openWindow();
+            if (host != null && host.startsWith("com.sony.")) {
+                // Launched by the integration (through DeviceControlService): open
+                // the pairing window and get out of the way once it is used.
+                launchedForPairing = true;
+                svc.pairing().openWindow();
+            }
         }, 300);
     }
 
@@ -123,6 +121,11 @@ public final class StatusActivity extends Activity {
 
     private void render() {
         AgentService svc = AgentService.instance();
+        if (launchedForPairing && svc != null && !svc.pairing().windowOpen()) {
+            launchedForPairing = false;
+            finish();
+            return;
+        }
         StringBuilder sb = new StringBuilder();
         sb.append("BRAVIA agent ").append(AgentService.VERSION)
           .append("  —  http://<tv>:").append(AgentService.PORT).append("/v1/state\n")
