@@ -343,7 +343,8 @@ Design rationale and every verified fact behind it: `bravia-research/docs/rest-i
 - Home Assistant (integration 0.3.0) unaffected: agent online, 11 endpoints, sensors updating.
 - **PIN session with the user (2026-11-03):** no PIN appeared. The TV's PIN service (`com.sony.dtv.seconddispsetting`, `DeviceRegisterManager.startActRegister`) rejects every non-Japanese set up front (`!ProductInfo.isJpRegion()` → `REQUEST_TIMEOUT`, which the service cannot map, so the API answers `[1, "Internal Server Error"]`). **Normal auth is Japan-only; outside Japan the pre-shared key is the write credential.** The agent already reports this as 409 `normal_auth_not_supported`. The cookie code stays for Japanese sets but cannot be tested here.
 - Visible write with the user watching, using the PSK: contrast 90 → 91 confirmed by the agent's re-read and by the TV, then restored to 90. Key forgotten afterwards.
-- Not exercised: the HDR trigger (needs HDR content), HTTPS mode with this build (the TV is in HTTP mode), Normal auth (needs a Japanese set).
+- HTTPS mode (user switched IP control back, 2026-11-03): a fresh agent process probes `https://127.0.0.1` first and uses it (68 targets, PSK verified, no-op write accepted, nothing logged). Finding: in HTTPS mode only the *LAN* side of port 80 is refused (nginx 403); loopback HTTP keeps answering, so a process that cached `http://127.0.0.1` while the TV was in HTTP mode keeps working over loopback after the switch. Harmless (the key never leaves the TV) and a restart moves it to HTTPS.
+- Not exercised: the HDR trigger (needs HDR content), Normal auth (needs a Japanese set).
 
 ### R3 — integration
 

@@ -190,7 +190,7 @@ Field notes:
   are `null` until the first read. The agent finds the endpoint by probing:
   HTTPS on 443, then plain HTTP (the scheme is a TV setting with a
   region-enforced default), on loopback first, then the TV's own LAN address;
-  `rest.scheme` reports which one answered. `rest.available` is false when
+  `rest.scheme` reports which one answered. (With the TV in HTTPS mode only LAN requests to port 80 are refused; loopback HTTP still answers, so an endpoint cached before a mode switch can stay `http` until the agent restarts. Either way the traffic never leaves the TV.) `rest.available` is false when
   IP control does not answer (switched off, or not yet up after wake); then
   `picture` and `power_saving` are `null`. Reads need no credential.
   `auth` is the stored write credential: `none`, `cookie` (Normal-auth
