@@ -22,6 +22,8 @@ public final class EnvironmentReader implements SensorEventListener {
     // no initial value on subscription, so after a restart it stays unknown
     // until the room changes by half a degree; seed from the last value seen.
     private static final String PREFS = "environment";
+    private static final long PERSIST_MS = 10 * 60000;
+    private long lastPersisted;
     private final android.content.SharedPreferences prefs;
     private final SensorManager manager;
     private final StateStore store;
@@ -40,15 +42,38 @@ public final class EnvironmentReader implements SensorEventListener {
         temperature = manager.getDefaultSensor(Sensor.TYPE_AMBIENT_TEMPERATURE);
     }
 
+    private final android.os.Handler handler = new android.os.Handler(android.os.Looper.getMainLooper());
+
     public void start() {
         if (light != null) manager.registerListener(this, light, SAMPLING_US);
-        if (temperature != null) manager.registerListener(this, temperature, SAMPLING_US);
+        if (temperature != null) {
+            if (celsius == null) {
+                // No value known: the HAL sends no initial event, but a rate
+                // change on the subscription can make it emit the current one.
+                // Ask fastest for a moment, then settle at 1 Hz.
+                manager.registerListener(this, temperature, SensorManager.SENSOR_DELAY_FASTEST);
+                handler.postDelayed(() -> {
+                    manager.unregisterListener(this, temperature);
+                    manager.registerListener(this, temperature, SAMPLING_US);
+                }, 2000);
+            } else {
+                manager.registerListener(this, temperature, SAMPLING_US);
+            }
+        }
         if (light == null && temperature == null) store.update("environment", null);
         else if (celsius != null) publish();
     }
 
     public void stop() {
+        handler.removeCallbacksAndMessages(null);
         manager.unregisterListener(this);
+        persist();
+    }
+
+    private void persist() {
+        if (celsius == null) return;
+        lastPersisted = SystemClock.elapsedRealtime();
+        prefs.edit().putFloat("temperature_c", celsius).apply();
     }
 
     @Override
@@ -56,7 +81,8 @@ public final class EnvironmentReader implements SensorEventListener {
         if (event.sensor.getType() == Sensor.TYPE_LIGHT) lux = event.values[0];
         else if (event.sensor.getType() == Sensor.TYPE_AMBIENT_TEMPERATURE) {
             celsius = event.values[0];
-            prefs.edit().putFloat("temperature_c", celsius).apply();
+            // Persist rarely: a write per event would be constant disk I/O.
+            if (SystemClock.elapsedRealtime() - lastPersisted > PERSIST_MS) persist();
         }
         long now = SystemClock.elapsedRealtime();
         if (now - lastPublished < MIN_INTERVAL_MS) return;

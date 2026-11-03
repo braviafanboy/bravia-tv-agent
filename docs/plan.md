@@ -269,10 +269,15 @@ elevated-priority threads are ART internals. Measures taken in 0.2.3:
 
 - Both sensors at their slowest rate (1 Hz) instead of the 5 Hz default.
   The temperature sensor is on-change in 0.5 °C steps and sends no initial
-  value on subscription, so after a restart it reads nothing until the room
-  moves half a degree; the last value is persisted and seeded. (An earlier
-  note blamed the 1 Hz rate for a missing reading; the sensor had simply
-  been flat since before the rate change.)
+  value on a plain subscription, but **a rate change makes the HAL emit the
+  current value**: with no value known the agent subscribes at the fastest
+  rate for 2 s, then drops to 1 Hz, and the reading arrived within seconds
+  (verified). The last value is also persisted (at most every 10 min and on
+  pause, never per event) and seeded at start.
+- Measured again with the TV on its home screen and the stream connected:
+  **1 tick (10 ms) of CPU in 60 s, ~0.02 %** of one core; during video with
+  the stream connected 13–32 ticks per 60 s (0.2–0.5 %), of which the main
+  thread, GC and JIT are the only visible consumers.
 - Audio: device callback plus the system volume/mute broadcasts, 60 s
   fallback poll (was 5 s). Wi-Fi: default-network callback, 120 s fallback
   (was 30 s). Sony settings: content observer plus 5 min fallback (was 60 s).
