@@ -235,6 +235,20 @@ block, without which the Living Decor provider query returns a null cursor
   status screen to the front and stops whatever was playing. Keep that
   fallback, but it is why re-pairing should stay rare.
 
+## TLS (2026-11-03, agent 0.2.0)
+
+- Self-signed EC P-256 key pair in the Android keystore; NanoHTTPD
+  `makeSecure` with a KeyManagerFactory over that keystore. TLS 1.3 and 1.2
+  verified from a Mac. RSA keystore keys do **not** work for this: Conscrypt
+  signs the handshake with a raw NONEwith* operation and the keystore
+  answers "Incompatible padding mode"; EC with `DIGEST_NONE` allowed works.
+- The integration pins the SHA-256 of the DER certificate, learned from the
+  handshake during pairing and stored next to the token. A mismatch (new
+  install) clears both and re-pairs. Name, chain and validity are ignored,
+  so IP changes and clock skew cannot break it.
+- Reinstall and factory reset lose the key together with the token, so the
+  only visible effect is a new pairing.
+
 ## Open questions
 
 - Does the HTTP server keep its port after a Wi-Fi drop or IP change, and does

@@ -128,7 +128,7 @@ public final class StatusActivity extends Activity {
         }
         StringBuilder sb = new StringBuilder();
         sb.append("BRAVIA agent ").append(AgentService.VERSION)
-          .append("  —  http://<tv>:").append(AgentService.PORT).append("/v1/state\n")
+          .append("  —  https://<tv>:").append(AgentService.PORT).append("/v1/state\n")
           .append("OK: Notification access (now-playing)   RIGHT: open pairing window   hold LEFT: unpair\n\n");
         if (svc == null) {
             sb.append("service starting…");

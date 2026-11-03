@@ -22,10 +22,24 @@ are JSON numbers; enums are lower-case strings.
     "usage_access": false
   },
   "endpoints": ["/v1/state", "/v1/events", "/v1/themes", "/v1/media/artwork"],
-  "pairing": {"paired": true, "paired_with": "Home Assistant", "window_open": false, "window_seconds_left": 0}
+  "pairing": {"paired": true, "paired_with": "Home Assistant", "window_open": false, "window_seconds_left": 0},
+  "tls": {"fingerprint_sha256": "0123abcd…"}
 }
 ```
 
+
+
+## Transport security
+
+The agent serves **HTTPS only** (port 8585) with a self-signed EC P-256
+certificate generated in the Android keystore on first run (25-year validity,
+`CN=BRAVIA agent`). Clients do not validate the name or chain; they **pin the
+certificate's SHA-256 fingerprint**, which the handshake exposes and
+`GET /v1/info.tls.fingerprint_sha256` repeats. The integration learns the
+fingerprint during pairing and pins it on every later connection; a
+different certificate (reinstall, factory reset) is treated like a rejected
+token and triggers a new pairing. The mDNS TXT carries `tls=1`. Plain HTTP is
+not served.
 
 ## Authentication
 

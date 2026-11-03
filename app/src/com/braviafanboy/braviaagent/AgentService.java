@@ -38,7 +38,7 @@ public final class AgentService extends Service implements HttpServer.InfoProvid
     private static final int NOTIFICATION_ID = 1;
     public static final int PORT = 8585;
     public static final String SERVICE_TYPE = "_bravia-agent._tcp";
-    public static final String VERSION = "0.1.3";
+    public static final String VERSION = "0.2.0";
 
     private static volatile AgentService instance;
 
@@ -46,6 +46,7 @@ public final class AgentService extends Service implements HttpServer.InfoProvid
     private HttpServer server;
     private DeviceIdentity identity;
     private Pairing pairing;
+    private Tls tls;
     private EnvironmentReader environment;
     private DisplayReader display;
     private InputsReader inputs;
@@ -103,10 +104,21 @@ public final class AgentService extends Service implements HttpServer.InfoProvid
         identity.start();
         server = new HttpServer(PORT, store, themes, this, media, pairing);
         try {
-            server.start(HttpServer.SOCKET_READ_TIMEOUT, false);
-            Log.i(TAG, "http server on :" + PORT);
-        } catch (IOException e) {
-            Log.e(TAG, "http server failed: " + e);
+            tls = Tls.load(this);
+            server.makeSecure(tls.serverSocketFactory(), null);
+        } catch (Exception e) {
+            // Without TLS the agent would hand its token to anyone on the LAN;
+            // better to serve nothing.
+            Log.e(TAG, "TLS identity failed, not starting the server: " + e);
+            server = null;
+        }
+        if (server != null) {
+            try {
+                server.start(HttpServer.SOCKET_READ_TIMEOUT, false);
+                Log.i(TAG, "https server on :" + PORT + " fingerprint " + tls.fingerprint().substring(0, 16) + "…");
+            } catch (IOException e) {
+                Log.e(TAG, "https server failed: " + e);
+            }
         }
         nsd = (NsdManager) getSystemService(Context.NSD_SERVICE);
         registerMdns();
@@ -169,6 +181,9 @@ public final class AgentService extends Service implements HttpServer.InfoProvid
             agent.put("contract", HttpServer.CONTRACT);
             agent.put("port", PORT);
             agent.put("foreground", foreground);
+            JSONObject t = new JSONObject();
+            t.put("fingerprint_sha256", tls == null ? JSONObject.NULL : tls.fingerprint());
+            o.put("tls", t);
             o.put("agent", agent);
             JSONObject tv = new JSONObject();
             tv.put("model", DeviceIdentity.model());
@@ -218,6 +233,7 @@ public final class AgentService extends Service implements HttpServer.InfoProvid
         info.setServiceType(SERVICE_TYPE);
         info.setPort(PORT);
         info.setAttribute("v", String.valueOf(HttpServer.CONTRACT));
+        info.setAttribute("tls", "1");
         info.setAttribute("p", pairing.isPaired() ? "1" : "0");
         String id = identity.deviceUniqueId();
         if (id != null) info.setAttribute("id", id);
