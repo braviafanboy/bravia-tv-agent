@@ -267,10 +267,12 @@ connected: **0.0–0.5 % of one core** (`top`, 10 s windows; ~0.9 s of CPU over
 3 min), **17 MB PSS**, no wakelocks, no disk writes after pairing, all
 elevated-priority threads are ART internals. Measures taken in 0.2.3:
 
-- Light sensor at its slowest rate (1 Hz) instead of the 5 Hz default. The
-  temperature sensor delivers nothing at 1 Hz, so it keeps the default rate;
-  it is on-change (0.5 °C steps) and sends no initial value, so the last
-  value is persisted and seeded after a restart.
+- Both sensors at their slowest rate (1 Hz) instead of the 5 Hz default.
+  The temperature sensor is on-change in 0.5 °C steps and sends no initial
+  value on subscription, so after a restart it reads nothing until the room
+  moves half a degree; the last value is persisted and seeded. (An earlier
+  note blamed the 1 Hz rate for a missing reading; the sensor had simply
+  been flat since before the rate change.)
 - Audio: device callback plus the system volume/mute broadcasts, 60 s
   fallback poll (was 5 s). Wi-Fi: default-network callback, 120 s fallback
   (was 30 s). Sony settings: content observer plus 5 min fallback (was 60 s).

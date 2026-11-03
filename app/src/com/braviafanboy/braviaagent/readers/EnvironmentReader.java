@@ -14,10 +14,9 @@ import org.json.JSONObject;
 /** Ambient light (lux) and ambient temperature from the TV's sensors. */
 public final class EnvironmentReader implements SensorEventListener {
     private static final long MIN_INTERVAL_MS = 1000;
-    // Light is on-change and its slowest rate (1 Hz) works; the temperature
-    // sensor delivers nothing at 1 Hz on the BRAVIA 8 II, so it keeps the
-    // default rate (it only reports changes anyway).
-    private static final int LIGHT_SAMPLING_US = 1000000;
+    // Both sensors are on-change; their slowest rate is 1 Hz, so ask for
+    // exactly that instead of the 5 Hz default we would only throttle.
+    private static final int SAMPLING_US = 1000000;
 
     // The temperature sensor is on-change with 0.5 °C steps and the HAL sends
     // no initial value on subscription, so after a restart it stays unknown
@@ -42,8 +41,8 @@ public final class EnvironmentReader implements SensorEventListener {
     }
 
     public void start() {
-        if (light != null) manager.registerListener(this, light, LIGHT_SAMPLING_US);
-        if (temperature != null) manager.registerListener(this, temperature, SensorManager.SENSOR_DELAY_NORMAL);
+        if (light != null) manager.registerListener(this, light, SAMPLING_US);
+        if (temperature != null) manager.registerListener(this, temperature, SAMPLING_US);
         if (light == null && temperature == null) store.update("environment", null);
         else if (celsius != null) publish();
     }
