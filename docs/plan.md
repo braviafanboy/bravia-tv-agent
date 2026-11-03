@@ -218,6 +218,23 @@ block, without which the Living Decor provider query returns a null cursor
   app enum, which did not yet include the agent (the TV refreshes that list on
   its own schedule); the deep link has no such check.
 
+## Live integration findings (2026-11-03)
+
+- First end-to-end run on the HA test VM: automatic pairing through the
+  cloud deep link, sensors, panel/remote binary sensors, theme list and
+  now-playing with artwork all arrived; no integration errors.
+- Event stream bug: NanoHTTPD gzips `text/*` responses for clients that send
+  `Accept-Encoding: gzip` (aiohttp does), and a gzipped SSE stream sits in the
+  deflater, so HA saw position updates only every ~80 s (its 75 s idle
+  reconnect). Fixed in 0.1.1 by disabling gzip for every response; the
+  integration also asks for identity encoding.
+- A token change now interrupts open event streams so the old client
+  re-authenticates immediately instead of at its next reconnect.
+- Replacing the token while HA is live makes HA re-pair; if its cloud deep
+  link attempt fails it falls back to the local app launch, which brings the
+  status screen to the front and stops whatever was playing. Keep that
+  fallback, but it is why re-pairing should stay rare.
+
 ## Open questions
 
 - Does the HTTP server keep its port after a Wi-Fi drop or IP change, and does

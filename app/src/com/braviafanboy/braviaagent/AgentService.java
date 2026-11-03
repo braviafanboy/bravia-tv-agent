@@ -38,7 +38,7 @@ public final class AgentService extends Service implements HttpServer.InfoProvid
     private static final int NOTIFICATION_ID = 1;
     public static final int PORT = 8585;
     public static final String SERVICE_TYPE = "_bravia-agent._tcp";
-    public static final String VERSION = "0.1.0";
+    public static final String VERSION = "0.1.1";
 
     private static volatile AgentService instance;
 
@@ -78,7 +78,10 @@ public final class AgentService extends Service implements HttpServer.InfoProvid
         store = new StateStore();
         identity = new DeviceIdentity(this);
         pairing = new Pairing(this);
-        pairing.setListener(() -> new android.os.Handler(getMainLooper()).post(this::registerMdns));
+        pairing.setListener(() -> new android.os.Handler(getMainLooper()).post(() -> {
+            registerMdns();
+            if (server != null) server.closeStreams();
+        }));
         identity.setCallback(id -> new android.os.Handler(getMainLooper()).post(this::registerMdns));
         themes = new ThemesReader(this);
         environment = new EnvironmentReader(this, store);

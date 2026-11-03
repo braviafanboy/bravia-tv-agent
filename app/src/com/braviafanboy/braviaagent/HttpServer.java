@@ -31,6 +31,7 @@ public final class HttpServer extends NanoHTTPD {
     private final InfoProvider info;
     private final MediaReader media;
     private final Pairing pairing;
+    private final java.util.Set<Thread> streams = java.util.Collections.synchronizedSet(new java.util.HashSet<>());
 
     public interface InfoProvider {
         JSONObject info();
@@ -43,6 +44,13 @@ public final class HttpServer extends NanoHTTPD {
         this.info = info;
         this.media = media;
         this.pairing = pairing;
+    }
+
+    @Override
+    protected boolean useGzipWhenAccepted(Response r) {
+        // Never: a gzipped event stream sits in the deflater until enough
+        // bytes accumulate, which turns 10 s updates into minute-long gaps.
+        return false;
     }
 
     @Override
@@ -121,6 +129,7 @@ public final class HttpServer extends NanoHTTPD {
         queue.offer(stateEvent(store.snapshot()));
         store.addListener(listener);
         Thread t = new Thread(() -> {
+            streams.add(Thread.currentThread());
             try {
                 while (!Thread.currentThread().isInterrupted()) {
                     String msg = queue.poll(HEARTBEAT_MS, TimeUnit.MILLISECONDS);
@@ -131,6 +140,7 @@ public final class HttpServer extends NanoHTTPD {
             } catch (IOException | InterruptedException e) {
                 // Pipe closed: client disconnected.
             } finally {
+                streams.remove(Thread.currentThread());
                 store.removeListener(listener);
                 try { out.close(); } catch (IOException ignored) { }
             }
@@ -141,6 +151,13 @@ public final class HttpServer extends NanoHTTPD {
         r.addHeader("Cache-Control", "no-store");
         r.addHeader("Connection", "keep-alive");
         return r;
+    }
+
+    /** End every open event stream (e.g. the token changed: clients must re-authenticate). */
+    public void closeStreams() {
+        Thread[] open;
+        synchronized (streams) { open = streams.toArray(new Thread[0]); }
+        for (Thread t : open) t.interrupt();
     }
 
     private static String stateEvent(JSONObject snapshot) {

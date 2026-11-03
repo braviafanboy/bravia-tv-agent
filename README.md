@@ -6,7 +6,7 @@ cannot expose over its local gRPC control plane or the Sony cloud, to the
 integration. It has no purpose on its own: the integration defines the
 contract, discovers the agent on the LAN, and turns its data into entities.
 
-**Status: phases 0–3 running on a BRAVIA 8 II** (2026-11-02): foreground
+**Status: 0.1.1, phases 0–3 running on a BRAVIA 8 II and paired to the integration** (2026-11-02): foreground
 service, HTTP server on port 8585 with `/v1/info`, `/v1/state`, `/v1/themes`,
 `/v1/media/artwork` and the `/v1/events` stream, mDNS advert
 `_bravia-agent._tcp`, readers for environment, display, HDMI inputs, audio,
