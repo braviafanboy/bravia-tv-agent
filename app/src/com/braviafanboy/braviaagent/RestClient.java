@@ -34,10 +34,10 @@ import javax.net.ssl.X509TrustManager;
  * JSON-RPC client for the TV's own REST IP-control API ({@code /sony/<service>}),
  * called on the TV itself.
  *
- * <p>Which scheme the API speaks is a TV setting whose default depends on the
- * region (EU sets serve HTTPS on 443 only and answer 403 on port 80), so the
- * client probes candidate endpoints in order and caches the first one that
- * answers JSON-RPC. The webapi's certificate is self-signed by the TV's own
+ * <p>The TV's HTTP/HTTPS setting (region-dependent default) governs network
+ * clients; on loopback, plain HTTP answers in either mode, so that is tried
+ * first. The client probes candidate endpoints in order and caches the first
+ * one that answers JSON-RPC. The webapi's certificate is self-signed by the TV's own
  * root and regenerated when the mode changes; it is accepted without
  * verification, which is only ever done for this device's own addresses.
  *
@@ -153,14 +153,19 @@ public final class RestClient {
         endpoint = candidate;
     }
 
-    /** HTTPS first (the enforced default in some regions), loopback first, then this device's own LAN address. */
+    /**
+     * Plain HTTP on loopback first: the TV's HTTPS setting only refuses plain
+     * HTTP from the network, so loopback HTTP answers in both modes (verified on
+     * a BRAVIA 8 II) and skips a TLS handshake per call. HTTPS and the TV's own
+     * LAN address remain as fallbacks for firmware that also locks loopback.
+     */
     static List<String> candidates() {
         List<String> out = new ArrayList<>();
         List<String> lan = ownIpv4();
-        out.add("https://127.0.0.1");
-        for (String a : lan) out.add("https://" + a);
         out.add("http://127.0.0.1");
+        out.add("https://127.0.0.1");
         out.add("http://[::1]");
+        for (String a : lan) out.add("https://" + a);
         for (String a : lan) out.add("http://" + a);
         return out;
     }

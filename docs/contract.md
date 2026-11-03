@@ -187,10 +187,12 @@ Field notes:
   the provider's raw strings.
 - `rest`, `picture` and `power_saving` come from the TV's REST IP-control API
   (the `webapi` package), called by the agent on the TV itself (0.2.9+). They
-  are `null` until the first read. The agent finds the endpoint by probing:
-  HTTPS on 443, then plain HTTP (the scheme is a TV setting with a
-  region-enforced default), on loopback first, then the TV's own LAN address;
-  `rest.scheme` reports which one answered. (With the TV in HTTPS mode only LAN requests to port 80 are refused; loopback HTTP still answers, so an endpoint cached before a mode switch can stay `http` until the agent restarts. Either way the traffic never leaves the TV.) `rest.available` is false when
+  are `null` until the first read. The agent calls the API on loopback over
+  plain HTTP: the TV's HTTP/HTTPS setting only governs network clients, and
+  loopback HTTP answers in both modes, so normally `rest.scheme` is `http`
+  whatever the TV is set to. HTTPS on loopback and the TV's own LAN address are
+  fallbacks for firmware that locks loopback too. The traffic never leaves the
+  TV. `rest.available` is false when
   IP control does not answer (switched off, or not yet up after wake); then
   `picture` and `power_saving` are `null`. Reads need no credential.
   `auth` is the stored write credential: `none`, `cookie` (Normal-auth
