@@ -349,9 +349,12 @@ Design rationale and every verified fact behind it: `bravia-research/docs/rest-i
 
 - **Client** (`grpc/agent.py`): register begin/complete, forget, set PSK, set picture target, refresh, set power saving.
 - **Entities**, generated from candidates: numeric range → `number`, value list → `select`, on/off pair → `switch`. `brightness` and `pictureMode` are excluded (gRPC owns them, with push). Enabled by default: the four Ambient Optimisation switches, contrast, colour, sharpness, colour temperature, local dimming, peak luminance, Motionflow, Reality Creation. Everything else disabled by default, entity category *config*. Unavailable when the target reports `isAvailable=false` or REST is unavailable. Power saving mode as a `select`.
-- **Credential flow (changed by the Japan-only finding):** the `rest_authorize` fix flow asks for the **pre-shared key** set on the TV (with the menu path: Settings → Network → Home network → IP control → Authentication → Normal and Pre-Shared Key, then Pre-Shared Key), sends it to the agent with `POST /v1/rest/psk`, and shows whether it verified. The PIN steps are offered only when `POST /v1/rest/register` answers `pin_shown` (Japanese sets). **Decided (2026-11-03): Home Assistant keeps the PSK in the config entry** (`entry.data`, beside the gRPC keys and the agent token; added to the diagnostics redaction list). The coordinator re-sends it with `POST /v1/rest/psk` only when the agent reports `rest.auth` other than `psk` (e.g. after an uninstall wiped the agent's prefs), not on every connection, since each send costs a verification read. If verification fails (key changed on the TV), the `rest_authorize` repair is raised again; clearing the key in the repair also calls `DELETE /v1/rest/auth`.
-- **Writes before authorisation** raise a translated error pointing at the repair below.
-- **Repairs:** `rest_unavailable` (IP control off or unreachable, with the menu path) and `rest_authorize` with a fix flow: *Start* → agent begins → form "Enter the PIN shown on the TV" → complete.
+- **Credential (decided 2026-11-03): write access is inferred from the pre-shared key in the integration's options.** An optional *REST pre-shared key* field (password selector) in the options flow, with the TV menu path in its description (Settings → Network → Home network → IP control → Authentication → Normal and Pre-Shared Key, then Pre-Shared Key). Stored in the config entry beside the gRPC keys and the agent token, redacted in diagnostics.
+  - **Empty → read-only:** picture targets and power saving appear as sensors with the TV's current values.
+  - **Set → writable:** the same settings appear as `number` / `switch` / `select`, power saving as a `select`.
+  - Changing the field reloads the entry; setup removes the other platform's picture entities from the registry so no orphans remain.
+  - The coordinator sends the key with `POST /v1/rest/psk` when the agent reports `rest.auth` other than `psk` (e.g. after an uninstall), and calls `DELETE /v1/rest/auth` when the field is cleared. The Normal-auth PIN flow is not offered in the UI (Japan-only); the agent endpoints stay.
+- **Repairs:** `rest_unavailable` (IP control off or unreachable, with the menu path) and `rest_key_rejected` (a key is set but the TV refuses it; fixed by entering the current key in the options).
 - **Refresh trigger:** picture values are per picture mode, so the coordinator asks the agent to refresh (debounced 1 s) when gRPC push reports a change of picture mode, input or content mode.
 - **Diagnostics:** `rest` status only, no secrets. **Tests:** FakeAgent extensions, candidate→entity mapping, refresh trigger, unauthorised-write error, fix flow. README section.
 - Release as integration **0.4.0**, after agent 0.3.0; an older agent simply yields no picture entities.
@@ -365,7 +368,7 @@ Design rationale and every verified fact behind it: `bravia-research/docs/rest-i
 
 ### Decisions needed before R3
 
-1. Controls present before authorisation (recommended: yes, writes fail with the repair link) versus read-only sensors until authorised.
+1. ~~Controls present before authorisation~~ → superseded: no key = read-only sensors, key = writable controls (2026-11-03).
 2. The default-enabled target set above.
 3. ~~Poll cadence~~ → **two integration options with sane defaults** (2026-11-03), replacing the earlier Lazy/Eager idea:
    - **Picture settings poll interval**, default 60 s, bounded 10 s – 60 min. Sent to the agent with `POST /v1/picture/config` `{"poll_s": N, "event_refresh": bool, "watch": [targets]}`; the agent clamps it, stores it in its prefs (survives restarts, standby) and reports it back in `rest`. The option text says shorter intervals load the TV more. Re-sent on every connection (idempotent; restores it after an uninstall wipes the prefs).
