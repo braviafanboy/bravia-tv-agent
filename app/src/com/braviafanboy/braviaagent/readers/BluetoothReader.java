@@ -7,7 +7,6 @@ import android.bluetooth.BluetoothDevice;
 import android.bluetooth.BluetoothGatt;
 import android.bluetooth.BluetoothGattCallback;
 import android.bluetooth.BluetoothGattCharacteristic;
-import android.bluetooth.BluetoothGattDescriptor;
 import android.bluetooth.BluetoothGattService;
 import android.bluetooth.BluetoothHeadset;
 import android.bluetooth.BluetoothManager;
@@ -37,10 +36,11 @@ import java.util.UUID;
  *
  * Connection state comes from public profile APIs: the system-wide GATT
  * connection list for LE devices (the remote) and the A2DP / Headset proxies
- * for classic audio devices. The remote's battery is read from the standard
- * GATT Battery Service (0x180F / 0x2A19) over the link the stack already
- * holds, with notifications for changes; the system battery broadcast is
- * honoured too when it appears.
+ * for classic audio devices. The remote's battery comes first from the
+ * stack's own BATTERY_LEVEL_CHANGED broadcast (free); as a fallback the
+ * standard GATT Battery Service (0x180F / 0x2A19) is read at most every six
+ * hours with a short-lived client over a link the stack already holds, then
+ * closed again, so the remote's own sleep behaviour is never affected.
  */
 public final class BluetoothReader extends BroadcastReceiver {
     private static final String TAG = "BraviaAgent";
@@ -48,9 +48,10 @@ public final class BluetoothReader extends BroadcastReceiver {
     private static final String EXTRA_BATTERY = "android.bluetooth.device.extra.BATTERY_LEVEL";
     private static final UUID BATTERY_SERVICE = UUID.fromString("0000180f-0000-1000-8000-00805f9b34fb");
     private static final UUID BATTERY_LEVEL = UUID.fromString("00002a19-0000-1000-8000-00805f9b34fb");
-    private static final UUID CCCD = UUID.fromString("00002902-0000-1000-8000-00805f9b34fb");
     private static final long POLL_MS = 60000;
-    private static final long BATTERY_READ_MS = 15 * 60000;
+    // Remote batteries last months: read rarely, and only over a link the stack
+    // already holds, so the agent never wakes the remote or keeps it awake.
+    private static final long BATTERY_READ_MS = 6 * 3600000L;
 
     private final Context context;
     private final StateStore store;
@@ -201,20 +202,11 @@ public final class BluetoothReader extends BroadcastReceiver {
         }
     }
 
-    /** Keep one GATT client on the remote while it is connected, read the level periodically. */
+    /** Read the remote's battery over an existing link, rarely, and let go at once. */
     private void maintainBatteryLink(BluetoothDevice remote, boolean connected) {
-        if (remote == null || !connected) {
-            closeGatt();
-            return;
-        }
-        if (gatt != null && remote.getAddress().equals(gattAddress)) {
-            if (level != null && System.currentTimeMillis() - lastBatteryRead > BATTERY_READ_MS) {
-                lastBatteryRead = System.currentTimeMillis();
-                try { gatt.readCharacteristic(level); } catch (Exception ignored) { }
-            }
-            return;
-        }
-        closeGatt();
+        if (remote == null || !connected || gatt != null) return;
+        if (System.currentTimeMillis() - lastBatteryRead < BATTERY_READ_MS) return;
+        lastBatteryRead = System.currentTimeMillis();
         try {
             gattAddress = remote.getAddress();
             gatt = remote.connectGatt(context, false, gattCallback, BluetoothDevice.TRANSPORT_LE);
@@ -247,23 +239,18 @@ public final class BluetoothReader extends BroadcastReceiver {
             BluetoothGattCharacteristic c = s == null ? null : s.getCharacteristic(BATTERY_LEVEL);
             if (c == null) {
                 Log.i(TAG, "remote has no battery service");
+                handler.post(this::done);
                 return;
             }
             level = c;
-            lastBatteryRead = System.currentTimeMillis();
-            try {
-                g.setCharacteristicNotification(c, true);
-                BluetoothGattDescriptor cccd = c.getDescriptor(CCCD);
-                if (cccd != null) g.writeDescriptor(cccd, BluetoothGattDescriptor.ENABLE_NOTIFICATION_VALUE);
-            } catch (Exception ignored) { }
-            try { g.readCharacteristic(c); } catch (Exception ignored) { }
-        }
-        @Override public void onDescriptorWrite(BluetoothGatt g, BluetoothGattDescriptor d, int status) {
-            // A read queued behind the descriptor write would be dropped; issue it now.
-            if (level != null) { try { g.readCharacteristic(level); } catch (Exception ignored) { } }
+            try { g.readCharacteristic(c); } catch (Exception ignored) { handler.post(this::done); }
         }
         @Override public void onCharacteristicRead(BluetoothGatt g, BluetoothGattCharacteristic c, byte[] value, int status) {
             if (status == BluetoothGatt.GATT_SUCCESS) onLevel(g, value);
+            handler.post(this::done);
+        }
+        private void done() {
+            closeGatt();
         }
         @Override public void onCharacteristicChanged(BluetoothGatt g, BluetoothGattCharacteristic c, byte[] value) {
             onLevel(g, value);

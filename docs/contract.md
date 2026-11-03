@@ -128,8 +128,10 @@ Field notes:
 - `bluetooth` is `null` until BLUETOOTH_CONNECT is granted (the status screen
   asks on launch). `remote` is the first bonded HID device; `connected` comes
   from the system GATT / A2DP / Headset connection lists; `battery_pct` for
-  the remote is read from its GATT Battery Service every 15 min and on change,
-  `null` until the first read or for devices without the service.
+  the remote comes from the stack's battery broadcast when it reports one,
+  else from one short GATT read at most every 6 hours over a link the stack
+  already holds (never waking the remote); `null` until the first reading or
+  for devices without the service.
 - `display.on` is the panel state (`Display.STATE_ON`); it is false during
   Picture Off and standby. `hdr` is one of `none`, `hdr10`, `hlg`,
   `dolby_vision`, `hdr10_plus` when a mode reports an active HDR type, else
