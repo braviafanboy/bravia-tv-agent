@@ -157,7 +157,7 @@ block, without which the Living Decor provider query returns a null cursor
 | 1 ✅ | Display block, media sessions (notification access), HDMI inputs, audio route | now-playing quality across YouTube / Netflix / Spotify; SSE |
 | 2 ✅ | Bluetooth (remote battery), Living Decor themes, Sony settings dump → chosen keys | provider stability across launcher versions |
 | 3 ✅ (soak pending) | Bearer token, Wi-Fi block, hardening (reconnect, memory, doze on standby) | long-running stability over weeks |
-| HA | Integration support lands alongside phase 0 (discovery + lux/temperature) and grows with each phase | — |
+| HA ✅ (unit-tested; live VM check pending) | Integration support: probe on the TV's host, pairing (cloud deep link / local launch), SSE, sensors, now-playing, theme select — commit in bravia-tv-grpc-homeassistant main | — |
 
 ## Phase 0 findings (2026-11-02, BRAVIA 8 II, Android 14)
 
