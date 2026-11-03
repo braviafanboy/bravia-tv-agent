@@ -356,7 +356,11 @@ Design rationale and every verified fact behind it: `bravia-research/docs/rest-i
 
 1. Controls present before authorisation (recommended: yes, writes fail with the repair link) versus read-only sensors until authorised.
 2. The default-enabled target set above.
-3. The 5-min poll plus gRPC-triggered refresh, versus a faster poll (no local change signal for picture settings was found; the SonySystemService listeners are certificate-gated).
+3. ~~The 5-min poll plus gRPC-triggered refresh, versus a faster poll~~ → make it a user choice (idea 2026-11-03): an integration option **Picture settings refresh: Lazy / Eager**.
+   - **Lazy:** slow agent poll (e.g. 15 min), no event-triggered reads. ≈0.012% of a core on the webapi on average. Values can lag up to one poll after a picture mode, input or content mode change.
+   - **Eager:** faster poll (e.g. 5 min) plus a refresh, debounced 1 s, on every gRPC picture mode, input or content mode change. ≈0.04% of a core on average, plus one ~111 ms webapi burst per triggering event. Values follow mode changes within ~1–2 s.
+   - Either way the agent re-reads right after its own writes, so a write is never validated against stale candidates.
+   - Needs an agent endpoint to set the poll interval, since the poll runs on the TV: `POST /v1/picture/config?poll_s=` (bounded, persisted in the agent's prefs, reported in `rest`). The integration sends it on setup and whenever the option changes; event-triggered refreshes use the existing `POST /v1/picture/refresh`. Belongs in R2 (agent) and R3 (integration option + trigger).
 
 ## Open questions
 
