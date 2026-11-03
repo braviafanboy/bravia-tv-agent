@@ -360,7 +360,9 @@ Design rationale and every verified fact behind it: `bravia-research/docs/rest-i
    - **Lazy:** slow agent poll (e.g. 15 min), no event-triggered reads. ≈0.012% of a core on the webapi on average. Values can lag up to one poll after a picture mode, input or content mode change.
    - **Eager:** faster poll (e.g. 5 min) plus a refresh, debounced 1 s, on every gRPC picture mode, input or content mode change. ≈0.04% of a core on average, plus one ~111 ms webapi burst per triggering event. Values follow mode changes within ~1–2 s.
    - Either way the agent re-reads right after its own writes, so a write is never validated against stale candidates.
-   - Needs an agent endpoint to set the poll interval, since the poll runs on the TV: `POST /v1/picture/config?poll_s=` (bounded, persisted in the agent's prefs, reported in `rest`). The integration sends it on setup and whenever the option changes; event-triggered refreshes use the existing `POST /v1/picture/refresh`. Belongs in R2 (agent) and R3 (integration option + trigger).
+   - The setting lives in the agent, set by the integration: `POST /v1/picture/config?mode=lazy|eager` stores the **mode name** in the agent's prefs (survives restarts and standby) and `rest.refresh_mode` reports it back, so Home Assistant shows what is in effect. The agent owns what each mode means (poll interval, local triggers). The integration option is the source of truth and is re-sent on every connection, which is idempotent and restores it after an uninstall wipes the prefs.
+   - In Eager the agent also self-triggers a re-read on local signals it already has, e.g. an HDR format change from `DisplayReader`, which switches the active picture setting set. Home Assistant adds a `POST /v1/picture/refresh` only for what the agent cannot see: picture mode, input and content mode changes pushed over gRPC.
+   - Agent side in R2, integration option and gRPC trigger in R3.
 
 ## Open questions
 
