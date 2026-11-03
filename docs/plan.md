@@ -158,7 +158,7 @@ block, without which the Living Decor provider query returns a null cursor
 | 2 ✅ | Bluetooth (remote battery), Living Decor themes, Sony settings dump → chosen keys | provider stability across launcher versions |
 | 3 ✅ (soak pending) | Bearer token, Wi-Fi block, hardening (reconnect, memory, doze on standby) | long-running stability over weeks |
 | HA ✅ (unit-tested; live VM check pending) | Integration support: probe on the TV's host, pairing (cloud deep link / local launch), SSE, sensors, now-playing, theme select — commit in bravia-tv-grpc-homeassistant main | — |
-| R1 ✅ · R2 ✅ (0.3.0, local; Normal auth Japan-only) · R3 planned | REST picture channel: agent-relayed reads (no auth), Normal-auth PIN registration, writes, integration entities — see *REST picture channel plan* | reads on the live TV; PIN flow with the user present; CPU unchanged |
+| R1 ✅ · R2 ✅ · R3 ✅ (agent 0.3.0 + integration, local; Normal auth Japan-only) | REST picture channel: agent-relayed reads (no auth), Normal-auth PIN registration, writes, integration entities — see *REST picture channel plan* | reads on the live TV; PIN flow with the user present; CPU unchanged |
 
 ## Phase 0 findings (2026-11-02, BRAVIA 8 II, Android 14)
 
@@ -361,6 +361,12 @@ Design rationale and every verified fact behind it: `bravia-research/docs/rest-i
 - **Refresh trigger:** picture values are per picture mode and per SDR/HDR set, so the coordinator asks the agent to refresh (debounced 1 s) when gRPC push reports a change of picture mode, input, content mode or video format (`playback_control.signal_info.video` `hdr_type`). The five HDMI-only targets are per-input (`uri`); show them as unavailable on app sources.
 - **Diagnostics:** `rest` status only, no secrets. **Tests:** FakeAgent extensions, candidate→entity mapping, refresh trigger, unauthorised-write error, fix flow. README section.
 - Release as integration **0.4.0**, after agent 0.3.0; an older agent simply yields no picture entities.
+
+**R3 findings (2026-11-03, integration on the VM, agent 0.3.0 on the TV):**
+
+- Implemented: client calls (`picture/config`, `picture/refresh`, `picture`, `power_saving`, `rest/psk`, `rest/auth`), `picture.py` (kind from candidates with HDMI-only fallbacks, labels), options (key, poll interval, event refresh), per-connection sync (settings + watch list from enabled entities, key handed over once per coordinator lifetime and whenever the agent lacks it, forgotten when cleared), re-sync once picture entities exist, debounced gRPC trigger (picture mode, input, content mode, `signal_info.video` `hdr_type`; resolution alone does not trigger), translated write errors, repairs (`rest_key_rejected`, `rest_unavailable` after 3 min), registry cleanup on mode switch, diagnostics (`rest`, target list; key redacted). 148 tests.
+- Live: read-only mode created 67 sensors (66 targets + power saving) with the TV's values; HDMI-only targets unavailable on an app. Entering the key via the options flow reloaded into 38 numbers, 23 selects (incl. power saving), 6 switches, sensors removed; agent `auth=psk`, verified. Same-value writes through `number.set_value` / `select.select_option` reached the TV (agent log). Wrong key → `rest_key_rejected` repair and writes refused; correct key → repair cleared. Watch list 66 after the re-sync.
+- Not exercised live: the gRPC-triggered refresh (unit-tested; needs a picture mode or HDR change on screen), `rest_unavailable` (needs IP control switched off for 3 min).
 
 ### Deferred
 
