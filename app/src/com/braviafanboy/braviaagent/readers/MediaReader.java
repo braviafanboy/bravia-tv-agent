@@ -93,13 +93,18 @@ public final class MediaReader {
     public void recheckPermission() {
         boolean granted = isGranted();
         if (granted && !attached && manager != null) {
+            // Right after an install the listener service may not be bound yet,
+            // so the query can still be refused although access is granted:
+            // only count as attached once both calls succeeded, else retry.
             try {
+                List<MediaController> active = manager.getActiveSessions(listener);
                 manager.addOnActiveSessionsChangedListener(sessions, listener, handler);
                 attached = true;
-                attach(manager.getActiveSessions(listener));
-                Log.i(TAG, "media sessions attached");
+                attach(active);
+                Log.i(TAG, "media sessions attached (" + active.size() + ")");
             } catch (SecurityException e) {
                 Log.w(TAG, "media sessions not permitted yet: " + e.getMessage());
+                store.update("media", null);
             }
         } else if (!granted && attached) {
             try { manager.removeOnActiveSessionsChangedListener(sessions); } catch (Exception ignored) { }
