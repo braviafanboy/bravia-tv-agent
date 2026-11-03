@@ -1,0 +1,80 @@
+# Changelog
+
+The release workflow copies the section matching the tag into `agent.json`,
+which Home Assistant shows as the update's release notes. Keep each section
+under a `## <version>` heading, newest first.
+
+## 0.2.8
+
+- Self-update from Home Assistant: the integration stages a release, the
+  agent downloads it, verifies its SHA-256 and asks for one confirmation on
+  the TV. Pairing and the certificate survive the update.
+- Setup flow also requests permission to install unknown apps.
+- Release builds are signed with the project's release key; a tag-triggered
+  workflow publishes the APK, its checksum and the `agent.json` manifest.
+
+## 0.2.7
+
+- Test release for the self-update path.
+
+## 0.2.6
+
+- First build signed with the release key (an update from an earlier,
+  debug-signed install needs one uninstall; the integration re-pairs).
+
+## 0.2.5
+
+- Launches by the integration open the pairing window without drawing a
+  screen; a toast says so.
+- `braviaagent://setup` opens the permission prompts for Notification access
+  and Bluetooth.
+
+## 0.2.4
+
+- Slower fallback polls everywhere events exist: audio 5 min, Wi-Fi 10 min
+  (with the RSSI broadcast), Bluetooth 10 min, settings 15 min.
+- Now-playing position refreshed once a minute while a client listens.
+
+## 0.2.3
+
+- Sensors at 1 Hz; temperature seeded from the last reading and coaxed out
+  of the HAL at start.
+- Event-driven audio, Wi-Fi and settings readers with slow fallbacks.
+- Artwork encoded lazily as WebP at 320 px, keyed on the bitmap.
+- All readers pause while the panel is off; server threads run at background
+  priority.
+
+## 0.2.2
+
+- Remote battery read rarely (every 6 h) over the stack's existing link, no
+  held Bluetooth connection.
+
+## 0.2.1
+
+- Cloud-delivered pair links are adopted on the main activity without
+  drawing; an unpaired agent refuses presented tokens.
+
+## 0.2.0
+
+- HTTPS only, with a self-signed EC certificate generated in the Android
+  keystore; the integration pins its fingerprint.
+
+## 0.1.3
+
+- Artwork cache keyed on the bitmap, revision carried in `artwork_url`.
+
+## 0.1.2
+
+- Media sessions attach only after a successful query (fixes a blank
+  now-playing right after an install).
+
+## 0.1.1
+
+- No gzip: the event stream was being buffered into bursts.
+- Open event streams are closed when the token changes.
+
+## 0.1.0
+
+- First build: foreground service, HTTPS/JSON server with an event stream,
+  mDNS advert, readers for environment, display, HDMI inputs, audio, Wi-Fi
+  and Sony settings, media sessions, Bluetooth, bearer-token pairing.
