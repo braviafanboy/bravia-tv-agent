@@ -33,7 +33,10 @@ import java.util.Set;
  */
 public final class StatusActivity extends Activity {
     private static final int OK_COLOR = 0xFF7BD88F;
+    /** Works with a limit, or in progress. */
     private static final int TODO_COLOR = 0xFFFFC66D;
+    /** Does not work until something is done. */
+    private static final int BAD_COLOR = 0xFFFF6B6B;
     private static final int DIM_COLOR = 0xFF9A9A9A;
     static final String DISCLAIMER =
         "Unofficial helper for the Bravia TV (gRPC) integration · not affiliated with Sony or Home Assistant";
@@ -278,11 +281,11 @@ public final class StatusActivity extends Activity {
             if (pairing.windowOpen()) {
                 row("Home Assistant", "Pairing… " + pairing.windowSecondsLeft() + " s left", TODO_COLOR);
             } else if (!pairing.isPaired()) {
-                row("Home Assistant", "Not paired yet", TODO_COLOR);
+                row("Home Assistant", "Not paired", BAD_COLOR);
             } else if (svc.store().hasListeners()) {
                 row("Home Assistant", "Connected", OK_COLOR);
             } else {
-                row("Home Assistant", "Paired, waiting for it to connect", DIM_COLOR);
+                row("Home Assistant", "Paired, waiting for it to connect", TODO_COLOR);
             }
         }
         grantRow("Now playing", notificationAccessGranted(), "Needs Notification access");
@@ -293,15 +296,15 @@ public final class StatusActivity extends Activity {
             if (rest == null) {
                 row("Picture settings", "Checking…", DIM_COLOR);
             } else if (!rest.optBoolean("available")) {
-                row("Picture settings", "Unavailable (IP control is off)", DIM_COLOR);
+                row("Picture settings", "Unavailable (IP control is off)", BAD_COLOR);
             } else if (rest.optBoolean("write_authorized")) {
                 row("Picture settings", "Read and change", OK_COLOR);
             } else if (!"none".equals(rest.optString("auth", "none"))) {
-                row("Picture settings", "Key rejected by the TV", TODO_COLOR);
+                row("Picture settings", "Key rejected by the TV", BAD_COLOR);
             } else {
                 // Reading needs no key; changing them needs the IP control
                 // pre-shared key, entered in Home Assistant.
-                row("Picture settings", "Read only (no key)", OK_COLOR);
+                row("Picture settings", "Read only (no key)", TODO_COLOR);
             }
         }
         StringBuilder h = new StringBuilder();
@@ -313,7 +316,7 @@ public final class StatusActivity extends Activity {
     }
 
     private void grantRow(String name, boolean granted, String missing) {
-        row(name, granted ? "OK" : missing, granted ? OK_COLOR : TODO_COLOR);
+        row(name, granted ? "OK" : missing, granted ? OK_COLOR : BAD_COLOR);
     }
 
     private void row(String name, String value, int color) {
