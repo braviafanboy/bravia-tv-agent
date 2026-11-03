@@ -82,8 +82,10 @@ Android requires the install to be confirmed on screen regardless):
    starts it silently, pairs with it and creates the entities.
 4. For now-playing and the remote's battery, grant *Notification access* and
    *Bluetooth* when the app asks. Reach the prompts with the **Agent setup**
-   button in Home Assistant or by opening the app from the TV's launcher; the
-   status screen also shows what the agent currently serves. With adb still
+   button in Home Assistant (it walks through whatever is missing and closes
+   again; with nothing missing it says so in Home Assistant and leaves the TV
+   alone), or open the app from the TV's launcher: its screen shows in plain
+   words what works and what is missing, and OK grants the rest. With adb still
    connected: `adb shell cmd notification allow_listener
    com.braviafanboy.braviaagent/.MediaListenerService` and
    `adb shell pm grant com.braviafanboy.braviaagent android.permission.BLUETOOTH_CONNECT`.

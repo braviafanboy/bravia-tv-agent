@@ -19,6 +19,11 @@ under a `## <version>` heading, newest first.
 - Refresh settings stored on the TV and set by Home Assistant: poll interval
   (default 60 s) and refresh on TV events (default on); short intervals read
   only the settings Home Assistant shows.
+- Simpler status screen: a short plain-language list of what works and what
+  is missing, instead of the raw state; OK grants whatever is missing.
+- The Agent setup link closes the agent again once nothing is left to grant
+  (and right away when nothing was missing), instead of leaving the status
+  screen in front.
 - adb-only maintenance commands
   (`adb shell dumpsys activity service com.braviafanboy.braviaagent/.AgentService`).
 

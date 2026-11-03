@@ -51,7 +51,7 @@ over when an update is pending): the updater downloads the APK, verifies the
 SHA-256, opens a package-installer session and shows Android's confirmation,
 which the user accepts on screen. The first time, Android also asks to allow
 the agent to install unknown apps (`permissions.install_packages`; the setup
-flow and DOWN on the status screen open that setting). Updates must be signed
+flow, and OK on the status screen while it is missing, open that setting). Updates must be signed
 with the release key or Android refuses them; pairing and the certificate
 survive an in-place update. The release manifest the integration reads is
 `agent.json`: `{"version", "url", "sha256", "notes"}`.
