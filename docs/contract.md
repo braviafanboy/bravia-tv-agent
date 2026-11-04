@@ -193,7 +193,7 @@ Field notes:
   whatever the TV is set to. HTTPS on loopback and the TV's own LAN address are
   fallbacks for firmware that locks loopback too. The traffic never leaves the
   TV. `rest.available` is false when
-  IP control does not answer (switched off, or not yet up after wake); then
+  IP control does not answer (Remote device settings → Control remotely off, or not yet up after wake); then
   `picture` and `power_saving` are `null`. Reads need no credential.
   `auth` is the stored write credential: `none`, `cookie` (Normal-auth
   session from PIN registration) or `psk`. `write_authorized` is true while
