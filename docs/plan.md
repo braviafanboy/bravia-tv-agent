@@ -489,10 +489,30 @@ Not exercised live: a full re-pairing (the pairing handler is unchanged).
     not on app updates. The same ids drive the cloud `select_media`
     capability, which suggests Sony treats them as stable. BRAVIA Connect's
     Flutter library contains no theme ids.
-  - Still to check on the TV: how many themes the Living Decor app shows in
-    total, and whether using one outside the list pushes it into the three
-    rows (expected, as history). Ids: snapshot recorded here; re-check after
-    a firmware or Living Decor update.
+  - Checked on the TV the same day: Living Decor's "See all" shows **14
+    themes** (Dawn to Dusk, Nature Scenery, Monochrome, Sensorial Gateway,
+    Rainforest Clock, Art Gallery, Singulart, two Flow Machines, an animated
+    room, an animated Earth view, Earth from space, a starfield, aibo). The
+    provider's three rows are the **three most recently used** themes:
+    selecting Sensorial Gateway put `theme://sensorialgateway` first and
+    dropped Nature Scenery. Ids seen so far: `monochrome` (Monochrome),
+    `skyview` (Dawn to Dusk), `naturalandscape` (Nature Scenery),
+    `sensorialgateway` (Sensorial Gateway; this one is in the APK).
+  - The full catalogue is not readable: it sits in Living Decor's Sony Select
+    provider (`com.sony.dtv.livingfit.provider`, not exported; adb gets
+    "not exported"), and the exported provider (`com.sony.dtv.livingfit`)
+    serves only `quicklauncher/contents`. Living Decor also exposes a
+    `MediaSelectorTraitService` to Sony's DeviceControlService (signature
+    bind), presumably what the cloud `select_media` reaches.
+  - **Themes can be shown locally**: `am start -a android.intent.action.VIEW
+    -d theme://monochrome` switched the TV to Monochrome (Living Decor's
+    MainActivity handles the `theme` scheme) and updated its history. An
+    agent-side launch would remove the internet requirement for themes;
+    untested whether Android lets the agent start it from the background.
+  - Options for the integration's theme select: remember every theme id the
+    agent has ever reported, so the list grows to everything used at least
+    once; and/or switch themes locally through the agent. Ids: snapshot
+    recorded here; re-check after a firmware or Living Decor update.
 - Which Sony settings keys are writable from a normal app, if any?
 
 ## Out of scope, recorded so it is not re-asked
