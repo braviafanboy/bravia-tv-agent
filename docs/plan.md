@@ -496,9 +496,8 @@ Not exercised live: a full re-pairing (the pairing handler is unchanged).
     provider's three rows are the **three most recently used** themes:
     selecting Sensorial Gateway put `theme://sensorialgateway` first and
     dropped Nature Scenery. Stepping through every theme (2026-11-04, UK
-    BRAVIA 8 II) gave 13 of the 14 ids; one tile (Earth from space or the
-    starfield) never reached the recent list, likely because it had not
-    finished downloading:
+    BRAVIA 8 II) gave all 14 ids. Ids may contain `/` and `-` (a first pass
+    with a narrower pattern truncated four of them):
 
     | Id | Title |
     |---|---|
@@ -506,16 +505,19 @@ Not exercised live: a full re-pairing (the pairing handler is unchanged).
     | `naturalandscape` | Nature Scenery |
     | `monochrome` | Monochrome |
     | `sensorialgateway` | Sensorial Gateway |
-    | `rainforest` | Rainforest Clock |
+    | `rainforest-clock` | Rainforest Clock |
     | `artgallery` | Art Gallery |
     | `singulart` | Singulart ("distribution will conclude in mid-January 2027") |
     | `flowmachines` | Colour Stream #001 |
     | `flowmachines2` | Colour Stream #002 |
     | `sakurachill` | Sakura Chill Beats |
-    | `spacenomad` | SPACE NOMAD #002 |
-    | `spacescenery` | Space Scenery #001 |
-    | `aibo` | My story with aibo |
+    | `spacenomad/002` | SPACE NOMAD #002 |
+    | `spacescenery/photo` | Space Scenery #001 |
+    | `spacescenery/video` | Space Scenery #002 |
+    | `aibo-w-bg` | My story with aibo |
 
+    A theme that has not finished downloading may not reach the recent list
+    until it has played once.
     Titles and descriptions are localised by the TV; the ids are not. The
     catalogue changes over time (Singulart announces its own end), so a
     remembered id can disappear; thumbnails come from
