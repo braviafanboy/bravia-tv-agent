@@ -14,6 +14,11 @@ in "Design" is a proposal.
 3. Degrade gracefully: the integration must work exactly as today when the
    agent is absent, stopped or older than the contract it expects.
 4. Stay local. Nothing leaves the LAN; no accounts; no cloud.
+5. The agent is an add-on to a TV paired over gRPC, never a substitute.
+   gRPC is the primary control plane and must be present: the integration
+   creates agent entities only inside a config entry whose gRPC setup
+   succeeded, and looks for the agent only at that TV's address
+   (decided 2026-11-04).
 
 Non-goals: controlling the TV (the integration already has two write paths),
 anything needing root or Sony signing, Google Play distribution, replacing
@@ -470,8 +475,6 @@ Not exercised live: a full re-pairing (the pairing handler is unchanged).
 - Does the Living Decor provider also list downloaded/seasonal themes, and do
   the ids stay stable across Living Decor updates?
 - Which Sony settings keys are writable from a normal app, if any?
-- Should the integration ever create entities from the agent when the gRPC
-  pairing is absent? Proposal: no; the agent is an add-on to a paired TV.
 
 ## Out of scope, recorded so it is not re-asked
 
