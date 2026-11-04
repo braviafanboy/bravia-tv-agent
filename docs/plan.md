@@ -423,6 +423,24 @@ encryption, needs its own unauthenticated endpoint and TLS-in-WebSocket code),
 and the companion app protocol (sensors only; would split the TV into two
 devices).
 
+Bootstrap (the WebSocket API refuses everything before authentication, so
+the first token needs another channel):
+
+- Local, the default: the integration's app launch opens the agent's 60 s
+  window; the agent finds Home Assistant through its `_home-assistant._tcp`
+  advert and POSTs to a well-known pairing webhook, which answers with the
+  token only during the window and only from the TV's address (proven in the
+  spike: 1.2 s, no cloud).
+- Sony cloud deep link, the fallback: carries the token and Home Assistant's
+  address, so it also works where the advert is not visible.
+- Existing pinned-TLS link, for upgrades: already-paired agents receive their
+  token over today's connection while the server still exists.
+
+New requirement: the TV must reach Home Assistant (today only the reverse is
+needed). TVs on an IoT network segment that may not reach Home Assistant, or
+where mDNS does not cross, fail local pairing and the connection itself. Needs
+a docs note and a repair when the agent is found but never connects.
+
 Migration: the integration first speaks both transports; agents then switch
 and keep the server for older integrations; the server is removed later.
 
