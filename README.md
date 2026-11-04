@@ -2,105 +2,83 @@
 
 *Unofficial helper for the Bravia TV (gRPC) Home Assistant integration. Not affiliated with Sony or Home Assistant.*
 
-A small Android TV app that runs on a Sony BRAVIA and reports what the TV
-cannot expose over its local gRPC control plane or the Sony cloud, to the
-[bravia-tv-grpc-homeassistant](https://github.com/braviafanboy/bravia-tv-grpc-homeassistant)
-integration. It has no purpose on its own: the integration defines the
-contract, discovers the agent on the LAN, and turns its data into entities.
-
-**Status: 0.2.8, phases 0–3 running on a BRAVIA 8 II, paired over pinned TLS, self-updating through Home Assistant; idle while the panel is off** (2026-11-02): foreground
-service, HTTP server on port 8585 with `/v1/info`, `/v1/state`, `/v1/themes`,
-`/v1/media/artwork` and the `/v1/events` stream, mDNS advert
-`_bravia-agent._tcp`, readers for environment, display, HDMI inputs, audio,
-Wi-Fi, the Sony settings keys, media sessions (now-playing with position and
-artwork, after Notification access) and Bluetooth (remote connection and
-battery over GATT, after BLUETOOTH_CONNECT), boot and reinstall start, crash
-restart and a status screen; survives the TV's standby/wake cycle. Bearer-token
-pairing through a 60 s window (opened by the integration's app launch or from
-the status screen) or by token delivery over the Sony cloud deep link.
-Integration-side support is the next step.
-Built with `app/build.sh` (SDK tools only, no Gradle). See
-[`docs/plan.md`](docs/plan.md) for the design and roadmap and
-[`docs/contract.md`](docs/contract.md) for the JSON the integration consumes.
+A small Android TV app for Sony BRAVIA TVs. It reads what the TV keeps to
+itself and hands it to the
+[Bravia TV (gRPC)](https://github.com/braviafanboy/bravia-tv-grpc-homeassistant)
+Home Assistant integration. It has no purpose on its own.
 
 ## What it adds
 
-Verified readable on a BRAVIA 8 II (K-65XR8M2, firmware 114.603) without any
-privileged permission:
+- **Room sensors.** Ambient light in lux, the same reading the TV's auto
+  brightness uses, and ambient temperature.
+- **Now playing.** Title, artist, position and artwork from the foreground
+  app, where the app publishes them.
+- **Every picture setting.** All the settings in the TV's picture menu, read
+  and, with an IP control key, changed from Home Assistant.
+- **Remote and panel.** The remote's battery level and connection, and
+  whether the screen is actually lit.
+- **Living Decor themes.** The theme list, so Home Assistant can show one by
+  name.
 
-| Data | Why the integration cannot get it otherwise |
-|---|---|
-| Ambient light (lux) and ambient temperature | Android sensors; no gRPC, cloud or REST path |
-| Now playing: app, title, artist, playback state, position, duration | Media sessions; the cloud `playback` state is a bare enum with no metadata |
-| Panel on/off, active mode, refresh rate, HDR format, brightness level | DisplayManager; covers Picture Off and standby in one signal |
-| Remote-control battery level | The bundled remote is a Bluetooth HID device with the battery profile |
-| HDMI input connection changes | TvInputManager callbacks; gRPC only has this by polling |
-| Audio route and per-stream volumes | AudioManager |
-| Living Decor theme list | The app's content provider; the TV never lists themes to the cloud, and the integration's `play_media` theme type needs the ids |
-| Selected Sony global settings (power saving, idle standby, auto shut-off, remote start, BRAVIA Sync options, LED behaviour, parental restrictions) | Sony's settings provider; its read permission is normal-level |
-| Wi-Fi signal strength and link speed | WifiManager |
-
-What it cannot do, so nobody has to re-research it: read any DeviceControlService
-trait (signature-protected: remote finder, parental control timers, voice
-search results), read the sleep timer (cloud-only), or make the TV upload its
-cloud state.
-
-## How it fits
-
-```
-TV (Android)                         Home Assistant
-┌──────────────────────┐             ┌──────────────────────────────┐
-│ agent app            │  mDNS +     │ bravia_tv_grpc integration   │
-│  sensors, sessions,  │  HTTP/JSON  │  existing gRPC + cloud paths │
-│  display, providers  │ ───────────▶│  + agent entities            │
-└──────────────────────┘             └──────────────────────────────┘
-```
-
-- One foreground service on the TV serving a JSON document over HTTPS on the
-  LAN (self-signed certificate, fingerprint-pinned by the integration),
-  advertised with mDNS; optional event stream for low-latency updates.
-- The integration finds it automatically (mDNS, or a probe of the TV's known
-  address), no second config entry.
-- The contract is versioned on the integration side; the integration tolerates
-  an older or missing agent by creating fewer entities, never by erroring.
+The integration's [entity reference](https://github.com/braviafanboy/bravia-tv-grpc-homeassistant/blob/main/docs/entities.md)
+lists every entity the agent provides.
 
 ## Install
 
-Once, with adb (the TV has no built-in way to fetch and install an app, and
-Android requires the install to be confirmed on screen regardless):
+You install it once with adb, Android's developer tool. The TV has no way to
+fetch an app from outside Google Play, and its browser cannot download files.
 
-1. On the TV: Settings → System → About → select *Android TV OS build* seven
-   times to unlock Developer options, then Settings → System → Developer
-   options → *Network debugging* on. Note the TV's IP address.
-2. From a computer with the Android platform tools:
+1. **Turn on network debugging.** On the TV, go to Settings → System → About
+   and select *Android TV OS build* seven times to unlock Developer options.
+   Then turn on Settings → System → Developer options → *Network debugging*,
+   and note the TV's IP address.
+2. **Install from a computer** with the
+   [Android platform tools](https://developer.android.com/tools/releases/platform-tools),
+   using `bravia-agent.apk` from the
+   [latest release](https://github.com/braviafanboy/bravia-tv-agent/releases):
 
-   ```
+   ```sh
    adb connect <tv-ip>
    adb install bravia-agent.apk
    ```
 
-   Accept the *Allow debugging?* prompt on the TV the first time.
-3. Nothing else is needed for the sensors: the integration finds the agent,
-   starts it silently, pairs with it and creates the entities.
-4. For now-playing and the remote's battery, grant *Notification access* and
-   *Bluetooth* when the app asks. Reach the prompts with the **Agent setup**
-   button in Home Assistant (it walks through whatever is missing and closes
-   again; with nothing missing it says so in Home Assistant and leaves the TV
-   alone), or open the app from the TV's launcher: its screen shows in plain
-   words what works and what is missing, and OK grants the rest. With adb still
-   connected: `adb shell cmd notification allow_listener
-   com.braviafanboy.braviaagent/.MediaListenerService` and
-   `adb shell pm grant com.braviafanboy.braviaagent android.permission.BLUETOOTH_CONNECT`.
+   Accept the *Allow debugging?* prompt on the TV.
+3. **Wait a few minutes.** The integration finds the agent, starts it,
+   pairs with it and adds its entities. Nothing appears on screen.
+4. **Grant the optional permissions.** Now-playing needs *Notification
+   access* and the remote's battery needs *Bluetooth*. Press **Agent setup**
+   on the TV's device page in Home Assistant, or open the HA TV Agent app on
+   the TV, and accept the prompts with the remote.
 
-Updates arrive through Home Assistant: the integration shows an update entity
-for the agent, and installing it downloads the release and asks for a
-confirmation on the TV (the first time also for permission to install unknown
-apps). `adb install -r` works too. Both keep the pairing; uninstalling loses
-it and the integration simply pairs again. Network debugging can be switched off after
-installing. Not distributed through Google Play. Note for the record: Sony's
-bundled browser cannot download files, so a browser-based install is not an
-option on these TVs.
+You can turn network debugging off afterwards.
+
+## Updates
+
+New versions appear as an update entity in Home Assistant. Installing one
+downloads the release on the TV and asks for one confirmation on screen. The
+first time, Android also asks for permission to install apps. Updates keep
+the pairing.
+
+## Privacy and security
+
+- The agent serves HTTPS only, on port 8585, with its own certificate. The
+  integration pins that certificate when pairing, so nothing else on the
+  network can pose as the agent.
+- Once paired, it answers everything except its basic info only for the
+  holder of the pairing token.
+- The IP control key, when set, stays in the app's private storage on the
+  TV. The agent uses it only for calls to the TV itself.
+
+## Development
+
+See [docs/development.md](docs/development.md) for building, debugging and
+releases, and [docs/contract.md](docs/contract.md) for the interface the
+integration uses.
+
+## Thanks
+
+The agent's HTTP server is [NanoHTTPD](https://github.com/NanoHttpd/nanohttpd).
 
 ## License
 
-MIT, same as the integration.
+[MIT](LICENSE), same as the integration.
