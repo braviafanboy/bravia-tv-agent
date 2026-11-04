@@ -111,20 +111,13 @@ public final class AgentService extends Service implements HttpServer.InfoProvid
         server.setRest(rest, restAuth);
         try {
             tls = Tls.load(this);
-            server.makeSecure(tls.serverSocketFactory(), null);
+            server.start(tls.serverSocketFactory());
+            Log.i(TAG, "https server on :" + PORT + " fingerprint " + tls.fingerprint().substring(0, 16) + "…");
         } catch (Exception e) {
             // Without TLS the agent would hand its token to anyone on the LAN;
             // better to serve nothing.
-            Log.e(TAG, "TLS identity failed, not starting the server: " + e);
+            Log.e(TAG, "https server failed, not serving: " + e);
             server = null;
-        }
-        if (server != null) {
-            try {
-                server.start(HttpServer.SOCKET_READ_TIMEOUT, false);
-                Log.i(TAG, "https server on :" + PORT + " fingerprint " + tls.fingerprint().substring(0, 16) + "…");
-            } catch (IOException e) {
-                Log.e(TAG, "https server failed: " + e);
-            }
         }
         nsd = (NsdManager) getSystemService(Context.NSD_SERVICE);
         registerMdns();

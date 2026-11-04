@@ -73,10 +73,11 @@ block, without which the Living Decor provider query returns a null cursor
   `agent.foreground=false` in `/v1/info`; the next start from an allowed
   context promotes it. Android TV shows a persistent notification for it;
   that is acceptable and expected.
-- An embedded HTTP server on port **8585** bound to all interfaces, plain
-  HTTP, JSON only. NanoHTTPD 2.3.1 (one jar, no dependencies); SSE is a
-  chunked response fed from a per-client queue by a writer thread, so a dead
-  client never blocks or crashes anything else.
+- An embedded HTTP server on port **8585** bound to all interfaces, JSON
+  only (HTTPS since 0.2.0). Originally NanoHTTPD 2.3.1; replaced in 0.3.1 by
+  the agent's own small server (see "HTTP server rewrite" below). SSE is a
+  chunked response fed from a per-client queue, so a dead client never blocks
+  or crashes anything else.
 - mDNS service `_bravia-agent._tcp` with TXT `v=<contract>`,
   `id=<TV device unique id>` so the integration can match it to the right
   config entry without the user typing anything. The id is the same 40-hex
@@ -405,52 +406,61 @@ Encoder benchmark on the TV (median of 3, background priority): JPEG q90 4–7 m
    - Measured cost (webapi, 2026-11-03, 20 reads each): full read 110 ms CPU / 944 ms wall; one target 5–6.5 ms CPU / ~45 ms wall; target lists in one call are rejected (`Illegal Argument`). So 60 s full ≈ 0.18% of a core; 10 s with the 13 default-enabled targets ≈ 0.8% (≈25× the agent's own footprint — measure before recommending short intervals); 10 s full ≈ 1.1% (never done).
    - Agent side in R2, integration options and gRPC trigger in R3.
 
-## Transport direction (decided 2026-11-04)
+## Transport direction (2026-11-04)
 
-The agent's listening HTTPS server is to be replaced by a connection the agent
-opens to Home Assistant's own WebSocket API, extended with commands the
-integration registers (agent state in, commands out). Home Assistant
-authenticates the agent with a token minted at pairing for a dedicated
-non-admin user, so there is no custom endpoint and no port on the TV.
+Decided: **keep the listening HTTPS server and rewrite it** (done in 0.3.1,
+below). It fixes the actual problem, an unmaintained dependency, with no
+change to the contract, pairing or the integration, keeps pinned TLS end to
+end on every install, and keeps working where the TV may not reach Home
+Assistant (IoT network segments).
 
-Security posture: the same as Home Assistant's. On a plain-HTTP install the
-agent's token crosses the LAN in clear, exactly as the frontend's and the
-companion app's do; HTTPS on Home Assistant protects it. This replaces today's
-pinned TLS and is accepted deliberately. Considered and set aside: webhooks
-with long polling (spike and measured findings on branch spike/webhooks), a reverse
-tunnel carrying the existing pinned-TLS contract (keeps end-to-end
-encryption, needs its own unauthenticated endpoint and TLS-in-WebSocket code),
-and the companion app protocol (sensors only; would split the TV into two
-devices).
+Considered and kept on file:
 
-Bootstrap (the WebSocket API refuses everything before authentication, so
-the first token needs another channel):
+- **Agent as a client of Home Assistant's WebSocket API** (integration-registered
+  commands, token minted at pairing for a dedicated non-admin user; the
+  companion app's local push and HASS.Agent are the precedents). Removes the
+  listening port, but puts a broad Home Assistant credential on the TV (no
+  scoped tokens exist, so a compromised TV could control the home), requires
+  TV-to-HA reachability, sends the token in clear on plain-HTTP installs, and
+  needs a two-sided staged migration. Bootstrap would be a local pairing
+  webhook during the agent's window, Home Assistant's mDNS advert, or a
+  manually entered address. Never the Sony cloud: nothing about the user's
+  Home Assistant is to pass through Sony's service. Worth revisiting if the
+  listening port becomes a real problem (for example Sony firmware limiting
+  inbound connections).
+- **Webhooks with long polling**: spike and measured findings on branch
+  spike/webhooks. Same speed as the server; same drawbacks as above.
+- **A reverse tunnel carrying the existing pinned-TLS contract**: keeps end
+  to end encryption but needs its own unauthenticated endpoint and
+  TLS-in-WebSocket code.
 
-- Local, the default: the integration's app launch opens the agent's 60 s
-  window; the agent finds Home Assistant through its `_home-assistant._tcp`
-  advert and POSTs to a well-known pairing webhook, which answers with the
-  token only during the window and only from the TV's address (proven in the
-  spike: 1.2 s, no cloud).
-- Manual address, the fallback where the advert is not visible: the user
-  enters Home Assistant's address once on the agent's status screen; the
-  integration's repair names the address to enter. Pairing then proceeds as
-  above.
-- Not the Sony cloud deep link: nothing about the user's Home Assistant (its
-  address or a token) is ever sent through Sony's service (decided
-  2026-11-04). Local pairing also replaces today's cloud delivery of the
-  agent token, so Sony drops out of pairing entirely.
-- Existing pinned-TLS link, for upgrades: already-paired agents receive their
-  token over today's connection while the server still exists.
+## HTTP server rewrite (0.3.1, measured 2026-11-04)
 
-New requirement: the TV must reach Home Assistant (today only the reverse is
-needed). TVs on an IoT network segment that may not reach Home Assistant, or
-where mDNS does not cross, fail local pairing and the connection itself. Needs
-a docs note and a repair when the agent is found but never connects; on
-such networks the manual address does not help unless the TV may reach Home
-Assistant's port.
+NanoHTTPD (2.3.1, 2016, unmaintained) is replaced by `http/` in the agent:
+a strict HTTP/1.1 subset on Android's TLS server sockets. Blocking sockets,
+one pooled thread per open connection (idle threads exit after 60 s), at most
+8 connections (Home Assistant holds the event stream and a few short
+requests), keep-alive with a 20 s idle timeout, and per request a 5 s read
+timeout and a 10 s overall deadline against slow senders. Limits: request line
+2 KB, headers 8 KB and 50 lines, body 64 KB, bodies only by Content-Length
+(chunked uploads refused), no compression. The event stream is written on its
+connection's own thread (no pipe and second thread as before). `app/test.sh`
+runs 56 checks on a desktop JVM, also in CI.
 
-Migration: the integration first speaks both transports; agents then switch
-and keep the server for older integrations; the server is removed later.
+| BRAVIA 8 II, idle, HA's event stream connected | NanoHTTPD | New server |
+|---|---|---|
+| CPU over 60 s | 3 ticks (30 ms) | 2 ticks (20 ms) |
+| Threads in the process | 23 | 23 |
+| PSS | 8.7 MB | 8.5 MB |
+| `/v1/info` on a new TLS connection | 49–60 ms | 31–35 ms |
+| `/v1/info` on an open connection | 12–17 ms | 7–9 ms |
+
+Verified live: Home Assistant reconnected with the pinned certificate within
+5 s of the install and every agent entity refreshed; picture writes through
+Home Assistant 58–107 ms; unauthorised requests 401, closed pairing 403, a
+70 KB body 413, a chunked upload 501, a 9 KB header 431, HTTP/2 505, garbage
+and random bytes 400, plain HTTP refused; the server kept serving throughout.
+Not exercised live: a full re-pairing (the pairing handler is unchanged).
 
 ## Open questions
 

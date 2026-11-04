@@ -10,8 +10,11 @@
 ## Building
 
 `app/build.sh` builds the APK with the Android SDK command-line tools only,
-without Gradle. It needs build-tools and platform 34 and a JDK 17, and fetches
-NanoHTTPD into `app/libs` on first run.
+without Gradle. It needs build-tools and platform 34 and a JDK 17. The agent
+uses no third-party libraries; its HTTP server is its own (`http/`).
+
+`app/test.sh` runs the unit tests for the HTTP layer on a desktop JVM, with
+no Android SDK needed. CI runs it too.
 
 ```sh
 app/build.sh                       # debug-signed: app/build/bravia-agent.apk
@@ -42,7 +45,8 @@ picture settings (`picture refresh|get|set|config`) and power saving.
 ## CI and releases
 
 - **CI** (`.github/workflows/ci.yml`) checks that every commit uses a GitHub
-  no-reply address, and builds the APK with the debug key.
+  no-reply address, builds the APK with the debug key, and runs the unit
+  tests.
 - **Releases** (`.github/workflows/release.yml`) run on a `v*` tag. The tag
   must match `versionName` in `app/AndroidManifest.xml`. The workflow builds
   with the release key from the repository's secrets, then publishes

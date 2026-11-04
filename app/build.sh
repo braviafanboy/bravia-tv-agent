@@ -1,6 +1,7 @@
 #!/bin/sh
 # Build and sign the agent APK without Gradle (phase 0 tooling).
-# Needs: Android SDK build-tools + platform, a JDK, curl. Output: build/bravia-agent.apk
+# Needs: Android SDK build-tools + platform and a JDK. Output: build/bravia-agent.apk
+# No third-party libraries.
 set -eu
 HERE=$(cd "$(dirname "$0")" && pwd)
 SDK=${ANDROID_SDK_ROOT:-$HOME/Library/Android/sdk}
@@ -9,16 +10,11 @@ PLATFORM=$SDK/platforms/$(ls "$SDK/platforms" | sort -V | tail -1)
 JAVA_HOME=${JAVA_HOME:-/opt/homebrew/opt/openjdk}
 export PATH="$JAVA_HOME/bin:$BT:$SDK/platform-tools:$PATH"
 OUT=$HERE/build
-LIBS=$HERE/libs
-NANO=$LIBS/nanohttpd-2.3.1.jar
-mkdir -p "$LIBS"
-[ -f "$NANO" ] || curl -fsSL -o "$NANO" \
-  https://repo1.maven.org/maven2/org/nanohttpd/nanohttpd/2.3.1/nanohttpd-2.3.1.jar
 rm -rf "$OUT"; mkdir -p "$OUT/classes"
 
 aapt2 link -o "$OUT/base.apk" -I "$PLATFORM/android.jar" --manifest "$HERE/AndroidManifest.xml"
-javac --release 17 -Xlint:-options -d "$OUT/classes" -cp "$PLATFORM/android.jar:$NANO" $(find "$HERE/src" -name '*.java')
-d8 --release --min-api 31 --lib "$PLATFORM/android.jar" --output "$OUT" $(find "$OUT/classes" -name '*.class') "$NANO"
+javac --release 17 -Xlint:-options -d "$OUT/classes" -cp "$PLATFORM/android.jar" $(find "$HERE/src" -name '*.java')
+d8 --release --min-api 31 --lib "$PLATFORM/android.jar" --output "$OUT" $(find "$OUT/classes" -name '*.class')
 cp "$OUT/base.apk" "$OUT/unsigned.apk"
 (cd "$OUT" && zip -q unsigned.apk classes.dex)
 zipalign -f 4 "$OUT/unsigned.apk" "$OUT/aligned.apk"

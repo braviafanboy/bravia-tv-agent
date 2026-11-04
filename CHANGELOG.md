@@ -6,6 +6,12 @@ under a `## <version>` heading, newest first.
 
 ## 0.3.1
 
+- New built-in web server, replacing the unmaintained NanoHTTPD library. It
+  serves exactly the requests Home Assistant makes and refuses anything else,
+  with strict size and time limits and a cap on open connections. Requests
+  answer faster (about 7 ms instead of 13 ms on an open connection), and the
+  agent no longer bundles any third-party code. Nothing changes for Home
+  Assistant or the pairing.
 - Sharper now-playing artwork: sent at the app's full resolution (YouTube
   640×360 instead of 320×180, Spotify album art 300×300) as JPEG, which costs
   the TV about a tenth of the CPU of the previous WebP encoding.

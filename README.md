@@ -75,10 +75,6 @@ See [docs/development.md](docs/development.md) for building, debugging and
 releases, and [docs/contract.md](docs/contract.md) for the interface the
 integration uses.
 
-## Thanks
-
-The agent's HTTP server is [NanoHTTPD](https://github.com/NanoHttpd/nanohttpd).
-
 ## License
 
 [MIT](LICENSE), same as the integration.

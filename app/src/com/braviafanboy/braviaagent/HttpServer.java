@@ -9,19 +9,20 @@ import com.braviafanboy.braviaagent.readers.ThemesReader;
 import org.json.JSONArray;
 import org.json.JSONObject;
 
-import java.io.ByteArrayInputStream;
+import com.braviafanboy.braviaagent.http.HttpRequest;
+import com.braviafanboy.braviaagent.http.HttpResponse;
+import com.braviafanboy.braviaagent.http.Server;
+
 import java.io.IOException;
-import java.io.PipedInputStream;
-import java.io.PipedOutputStream;
 import java.nio.charset.StandardCharsets;
 import java.util.concurrent.BlockingQueue;
 import java.util.concurrent.LinkedBlockingQueue;
 import java.util.concurrent.TimeUnit;
 
-import fi.iki.elonen.NanoHTTPD;
+import javax.net.ServerSocketFactory;
 
 /** The agent's HTTP surface: /v1/info, /v1/state, /v1/themes, /v1/events (SSE). */
-public final class HttpServer extends NanoHTTPD {
+public final class HttpServer implements Server.Handler {
     private static final String TAG = "BraviaAgent";
     public static final int CONTRACT = 1;
     public static final String PICTURE_REFRESH_PATH = "/v1/picture/refresh";
@@ -32,6 +33,8 @@ public final class HttpServer extends NanoHTTPD {
     public static final String REST_PSK_PATH = "/v1/rest/psk";
     private static final long HEARTBEAT_MS = 30000;
     private static final int QUEUE_DEPTH = 16;
+    /** Home Assistant holds the event stream plus a few short requests; this leaves ample headroom. */
+    private static final int MAX_CONNECTIONS = 8;
 
     private final StateStore store;
     private final ThemesReader themes;
@@ -42,6 +45,8 @@ public final class HttpServer extends NanoHTTPD {
     private RestClient rest;
     private RestAuth restAuth;
     private final Updater updater;
+    private final int port;
+    private Server server;
     private final java.util.Set<Thread> streams = java.util.Collections.synchronizedSet(new java.util.HashSet<>());
 
     public interface InfoProvider {
@@ -49,7 +54,7 @@ public final class HttpServer extends NanoHTTPD {
     }
 
     public HttpServer(android.content.Context context, int port, StateStore store, ThemesReader themes, InfoProvider info, MediaReader media, Pairing pairing, PictureReader picture) {
-        super(port);
+        this.port = port;
         this.store = store;
         this.themes = themes;
         this.info = info;
@@ -65,24 +70,26 @@ public final class HttpServer extends NanoHTTPD {
         this.restAuth = auth;
     }
 
-    @Override
-    protected boolean useGzipWhenAccepted(Response r) {
-        // Never: a gzipped event stream sits in the deflater until enough
-        // bytes accumulate, which turns 10 s updates into minute-long gaps.
-        return false;
+    /** Start serving HTTPS with the agent's TLS identity. */
+    public void start(ServerSocketFactory tlsFactory) throws IOException {
+        server = new Server(tlsFactory, port, this, MAX_CONNECTIONS,
+            // Request threads yield to the TV's video pipeline.
+            () -> android.os.Process.setThreadPriority(android.os.Process.THREAD_PRIORITY_BACKGROUND),
+            HttpServer::log);
+        server.start();
+    }
+
+    public void stop() {
+        if (server != null) server.stop();
     }
 
     @Override
-    public Response serve(IHTTPSession session) {
-        // Request threads yield to the TV's video pipeline.
-        android.os.Process.setThreadPriority(android.os.Process.THREAD_PRIORITY_BACKGROUND);
-        String path = session.getUri();
+    public HttpResponse handle(HttpRequest session) {
+        String path = session.path;
         if ("/v1/pair".equals(path)) return pair(session);
         if ("/v1/info".equals(path) || "/".equals(path)) return json(info.info());
-        if (!pairing.authorized(session.getHeaders().get("authorization"))) {
-            Response r = error(Response.Status.UNAUTHORIZED, "unauthorized");
-            r.addHeader("WWW-Authenticate", "Bearer realm=\"bravia-agent\"");
-            return r;
+        if (!pairing.authorized(session.header("authorization"))) {
+            return error(401, "unauthorized").header("WWW-Authenticate", "Bearer realm=\"bravia-agent\"");
         }
         if ("/v1/update".equals(path)) return update(session);
         if (PICTURE_REFRESH_PATH.equals(path)) return pictureRefresh(session);
@@ -91,7 +98,7 @@ public final class HttpServer extends NanoHTTPD {
         if (POWER_SAVING_PATH.equals(path)) return powerSaving(session);
         if (REST_AUTH_PATH.equals(path)) return restForget(session);
         if (REST_PSK_PATH.equals(path)) return restPsk(session);
-        if (session.getMethod() != Method.GET) return error(Response.Status.METHOD_NOT_ALLOWED, "method_not_allowed");
+        if (!"GET".equals(session.method)) return error(405, "method_not_allowed");
         switch (path) {
             case "/v1/state": return json(store.snapshot());
             case "/v1/themes": {
@@ -102,35 +109,32 @@ public final class HttpServer extends NanoHTTPD {
             case "/v1/events": return events();
             case MediaReader.ARTWORK_PATH: {
                 byte[] img = media == null ? null : media.artwork();
-                if (img == null) return error(Response.Status.NOT_FOUND, "no_artwork");
-                Response r = newFixedLengthResponse(Response.Status.OK, "image/jpeg", new ByteArrayInputStream(img), img.length);
-                r.addHeader("Cache-Control", "no-store");
-                return r;
+                if (img == null) return error(404, "no_artwork");
+                return HttpResponse.of(200, "image/jpeg", img).header("Cache-Control", "no-store");
             }
-            default: return error(Response.Status.NOT_FOUND, "not_found");
+            default: return error(404, "not_found");
         }
     }
 
     /** POST /v1/pair?name=<client>: mint a token while the pairing window is open. */
-    private Response pair(IHTTPSession session) {
-        if (session.getMethod() != Method.POST) return error(Response.Status.METHOD_NOT_ALLOWED, "method_not_allowed");
-        java.util.List<String> names = session.getParameters().get("name");
-        String name = names == null || names.isEmpty() ? "unknown" : names.get(0);
+    private HttpResponse pair(HttpRequest session) {
+        if (!"POST".equals(session.method)) return error(405, "method_not_allowed");
+        String name = param(session, "name");
+        if (name == null || name.isEmpty()) name = "unknown";
         String token = pairing.pair(name);
-        if (token == null) return error(Response.Status.FORBIDDEN, "pairing_closed");
+        if (token == null) return error(403, "pairing_closed");
         JSONObject o = new JSONObject();
         try { o.put("token", token); } catch (Exception ignored) { }
-        log("paired " + name + " from " + session.getRemoteIpAddress());
+        log("paired " + name + " from " + session.remoteAddress);
         return json(o);
     }
 
     /** POST /v1/update?url=&sha256=&version=: stage a self-update (run by UpdateActivity). */
-    private Response update(IHTTPSession session) {
-        if (session.getMethod() != Method.POST) return error(Response.Status.METHOD_NOT_ALLOWED, "method_not_allowed");
-        java.util.Map<String, java.util.List<String>> q = session.getParameters();
-        String url = q.containsKey("url") ? q.get("url").get(0) : null;
-        if (url == null || !(url.startsWith("https://") || url.startsWith("http://"))) return error(Response.Status.BAD_REQUEST, "url_required");
-        updater.setPending(url, q.containsKey("sha256") ? q.get("sha256").get(0) : null, q.containsKey("version") ? q.get("version").get(0) : null);
+    private HttpResponse update(HttpRequest session) {
+        if (!"POST".equals(session.method)) return error(405, "method_not_allowed");
+        String url = param(session, "url");
+        if (url == null || !(url.startsWith("https://") || url.startsWith("http://"))) return error(400, "url_required");
+        updater.setPending(url, param(session, "sha256"), param(session, "version"));
         JSONObject o = new JSONObject();
         try { o.put("pending", url); } catch (Exception ignored) { }
         log("update staged: " + url);
@@ -138,9 +142,9 @@ public final class HttpServer extends NanoHTTPD {
     }
 
     /** POST /v1/picture/refresh: re-read the REST picture settings now (async; the change arrives as a state event). */
-    private Response pictureRefresh(IHTTPSession session) {
-        if (session.getMethod() != Method.POST) return error(Response.Status.METHOD_NOT_ALLOWED, "method_not_allowed");
-        if (picture == null) return error(Response.Status.NOT_FOUND, "not_found");
+    private HttpResponse pictureRefresh(HttpRequest session) {
+        if (!"POST".equals(session.method)) return error(405, "method_not_allowed");
+        if (picture == null) return error(404, "not_found");
         log("picture: refresh requested");
         picture.refresh();
         JSONObject o = new JSONObject();
@@ -149,11 +153,11 @@ public final class HttpServer extends NanoHTTPD {
     }
 
     /** POST /v1/picture {"target", "value"}: write one picture target (validated against the last read). */
-    private Response pictureWrite(IHTTPSession session) {
-        if (session.getMethod() != Method.POST) return error(Response.Status.METHOD_NOT_ALLOWED, "method_not_allowed");
+    private HttpResponse pictureWrite(HttpRequest session) {
+        if (!"POST".equals(session.method)) return error(405, "method_not_allowed");
         JSONObject body = body(session);
-        if (picture == null) return error(Response.Status.NOT_FOUND, "not_found");
-        if (body == null || !body.has("target") || !body.has("value")) return error(Response.Status.BAD_REQUEST, "target_and_value_required");
+        if (picture == null) return error(404, "not_found");
+        if (body == null || !body.has("target") || !body.has("value")) return error(400, "target_and_value_required");
         try {
             picture.writeTarget(body.optString("target"), body.optString("value"));
         } catch (PictureReader.WriteException e) {
@@ -163,11 +167,11 @@ public final class HttpServer extends NanoHTTPD {
     }
 
     /** POST /v1/power_saving?mode=off|low|high */
-    private Response powerSaving(IHTTPSession session) {
-        if (session.getMethod() != Method.POST) return error(Response.Status.METHOD_NOT_ALLOWED, "method_not_allowed");
+    private HttpResponse powerSaving(HttpRequest session) {
+        if (!"POST".equals(session.method)) return error(405, "method_not_allowed");
         String mode = param(session, "mode");
-        if (picture == null) return error(Response.Status.NOT_FOUND, "not_found");
-        if (mode == null) return error(Response.Status.BAD_REQUEST, "mode_required");
+        if (picture == null) return error(404, "not_found");
+        if (mode == null) return error(400, "mode_required");
         try {
             picture.writePowerSaving(mode);
         } catch (PictureReader.WriteException e) {
@@ -177,11 +181,11 @@ public final class HttpServer extends NanoHTTPD {
     }
 
     /** POST /v1/picture/config {"poll_s", "event_refresh", "watch": [...]}: refresh settings, stored on the TV. */
-    private Response pictureConfig(IHTTPSession session) {
-        if (session.getMethod() != Method.POST) return error(Response.Status.METHOD_NOT_ALLOWED, "method_not_allowed");
+    private HttpResponse pictureConfig(HttpRequest session) {
+        if (!"POST".equals(session.method)) return error(405, "method_not_allowed");
         JSONObject body = body(session);
-        if (picture == null) return error(Response.Status.NOT_FOUND, "not_found");
-        if (body == null) return error(Response.Status.BAD_REQUEST, "json_body_required");
+        if (picture == null) return error(404, "not_found");
+        if (body == null) return error(400, "json_body_required");
         Integer pollS = body.has("poll_s") ? body.optInt("poll_s", PictureReader.DEFAULT_POLL_S) : null;
         Boolean eventRefresh = body.has("event_refresh") ? body.optBoolean("event_refresh", true) : null;
         java.util.List<String> watch = null;
@@ -201,21 +205,21 @@ public final class HttpServer extends NanoHTTPD {
     }
 
     /** DELETE /v1/rest/auth: forget the REST credential. */
-    private Response restForget(IHTTPSession session) {
-        if (session.getMethod() != Method.DELETE) return error(Response.Status.METHOD_NOT_ALLOWED, "method_not_allowed");
-        if (restAuth == null) return error(Response.Status.NOT_FOUND, "not_found");
+    private HttpResponse restForget(HttpRequest session) {
+        if (!"DELETE".equals(session.method)) return error(405, "method_not_allowed");
+        if (restAuth == null) return error(404, "not_found");
         restAuth.forget();
         if (picture != null) picture.publish();
         return ok();
     }
 
     /** POST /v1/rest/psk {"psk"}: store the IP-control pre-shared key and verify it. */
-    private Response restPsk(IHTTPSession session) {
-        if (session.getMethod() != Method.POST) return error(Response.Status.METHOD_NOT_ALLOWED, "method_not_allowed");
-        if (rest == null || restAuth == null) return error(Response.Status.NOT_FOUND, "not_found");
+    private HttpResponse restPsk(HttpRequest session) {
+        if (!"POST".equals(session.method)) return error(405, "method_not_allowed");
+        if (rest == null || restAuth == null) return error(404, "not_found");
         JSONObject body = body(session);
         String psk = body == null ? null : body.optString("psk", null);
-        if (psk == null || psk.isEmpty()) return error(Response.Status.BAD_REQUEST, "psk_required");
+        if (psk == null || psk.isEmpty()) return error(400, "psk_required");
         restAuth.setPsk(psk);
         boolean ok = restAuth.verify(rest);
         if (picture != null) picture.publish();
@@ -224,81 +228,67 @@ public final class HttpServer extends NanoHTTPD {
         return json(o);
     }
 
-    private Response writeError(String code) {
+    private HttpResponse writeError(String code) {
         switch (code) {
-            case "rest_unavailable": return error(Response.Status.SERVICE_UNAVAILABLE, code);
-            case "rest_unauthorized": return error(Response.Status.FORBIDDEN, code);
-            case "unknown_target": return error(Response.Status.NOT_FOUND, code);
-            case "target_unavailable": return error(Response.Status.CONFLICT, code);
-            case "invalid_value": return error(Response.Status.BAD_REQUEST, code);
-            default: return error(Response.Status.INTERNAL_ERROR, code);
+            case "rest_unavailable": return error(503, code);
+            case "rest_unauthorized": return error(403, code);
+            case "unknown_target": return error(404, code);
+            case "target_unavailable": return error(409, code);
+            case "invalid_value": return error(400, code);
+            default: return error(500, code);
         }
     }
 
-    private static String param(IHTTPSession session, String name) {
-        java.util.List<String> v = session.getParameters().get(name);
-        return v == null || v.isEmpty() ? null : v.get(0);
+    private static String param(HttpRequest session, String name) {
+        return session.param(name);
     }
 
-    private static JSONObject body(IHTTPSession session) {
+    private static JSONObject body(HttpRequest session) {
         try {
-            java.util.Map<String, String> files = new java.util.HashMap<>();
-            session.parseBody(files);
-            String raw = files.get("postData");
-            return raw == null || raw.isEmpty() ? null : new JSONObject(raw);
+            String raw = session.bodyText();
+            return raw.isEmpty() ? null : new JSONObject(raw);
         } catch (Exception e) {
             return null;
         }
     }
 
-    private Response ok() {
+    private HttpResponse ok() {
         JSONObject o = new JSONObject();
         try { o.put("ok", true); } catch (Exception ignored) { }
         return json(o);
     }
 
-    private Response status(String s) {
+    private HttpResponse status(String s) {
         JSONObject o = new JSONObject();
         try { o.put("status", s); } catch (Exception ignored) { }
         return json(o);
     }
 
-    private Response json(JSONObject o) {
-        Response r = newFixedLengthResponse(Response.Status.OK, "application/json", o.toString());
-        r.addHeader("Cache-Control", "no-store");
-        return r;
+    private HttpResponse json(JSONObject o) {
+        return HttpResponse.text(200, "application/json", o.toString()).header("Cache-Control", "no-store");
     }
 
-    private Response error(Response.Status status, String code) {
+    private HttpResponse error(int status, String code) {
         JSONObject o = new JSONObject();
         try { o.put("error", code); } catch (Exception ignored) { }
-        return newFixedLengthResponse(status, "application/json", o.toString());
+        return HttpResponse.text(status, "application/json", o.toString());
     }
 
     /**
      * Server-Sent Events: a state event on change (coalesced), heartbeats every
-     * 30 s. All socket writes happen on the per-client writer thread; the
-     * StateStore listener only queues, so a dead client can never block or
-     * crash the main thread. The pipe's read end is closed by NanoHTTPD when
-     * the client goes away, which makes the next write fail and ends the
-     * subscription.
+     * 30 s. The StateStore listener only queues; all socket writes happen on
+     * this connection's own thread, so a dead client can never block or crash
+     * the main thread. A failed write (client gone) or an interrupt
+     * ({@link #closeStreams}) ends the stream.
      */
-    private Response events() {
-        final PipedInputStream in = new PipedInputStream(65536);
-        final PipedOutputStream out;
-        try {
-            out = new PipedOutputStream(in);
-        } catch (IOException e) {
-            return error(Response.Status.INTERNAL_ERROR, "stream_failed");
-        }
+    private HttpResponse events() {
         final BlockingQueue<String> queue = new LinkedBlockingQueue<>(QUEUE_DEPTH);
         final StateStore.Listener listener = snapshot -> queue.offer(stateEvent(snapshot));
-        queue.offer(stateEvent(store.snapshot()));
-        store.addListener(listener);
-        if (media != null) media.onClientSubscribed();
-        Thread t = new Thread(() -> {
-            android.os.Process.setThreadPriority(android.os.Process.THREAD_PRIORITY_BACKGROUND);
+        return HttpResponse.stream(200, "text/event-stream", out -> {
             streams.add(Thread.currentThread());
+            queue.offer(stateEvent(store.snapshot()));
+            store.addListener(listener);
+            if (media != null) media.onClientSubscribed();
             try {
                 while (!Thread.currentThread().isInterrupted()) {
                     String msg = queue.poll(HEARTBEAT_MS, TimeUnit.MILLISECONDS);
@@ -306,20 +296,11 @@ public final class HttpServer extends NanoHTTPD {
                     out.write(msg.getBytes(StandardCharsets.UTF_8));
                     out.flush();
                 }
-            } catch (IOException | InterruptedException e) {
-                // Pipe closed: client disconnected.
             } finally {
                 streams.remove(Thread.currentThread());
                 store.removeListener(listener);
-                try { out.close(); } catch (IOException ignored) { }
             }
-        }, "sse-writer");
-        t.setDaemon(true);
-        t.start();
-        Response r = newChunkedResponse(Response.Status.OK, "text/event-stream", in);
-        r.addHeader("Cache-Control", "no-store");
-        r.addHeader("Connection", "keep-alive");
-        return r;
+        }).header("Cache-Control", "no-store");
     }
 
     /** End every open event stream (e.g. the token changed: clients must re-authenticate). */
