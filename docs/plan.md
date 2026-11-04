@@ -472,7 +472,26 @@ Not exercised live: a full re-pairing (the pairing handler is unchanged).
   the mDNS advert come back? (Phase 3 soak test; the standby question is
   answered below.)
 - Does the Living Decor provider also list downloaded/seasonal themes, and do
-  the ids stay stable across Living Decor updates?
+  the ids stay stable across Living Decor updates? Findings 2026-11-04 (Living
+  Decor = `com.sony.dtv.livingfit` v2.37.22, factory image, never updated):
+  - The provider feeds the TV's **quick-menu Living Decor row, not the
+    catalogue**: every query returns the same 3 rows (`hMax=3`; here 2 from
+    `history`, 1 `default`), whatever `themeListType` (`all`, `default`,
+    `history`, `download`), `hMax` or `screenId` is passed. So `/v1/themes`
+    and the integration's theme select only ever offer recent themes plus a
+    default, not everything installed.
+  - The app downloads themes (download handling, an all-themes screen).
+    Built-in themes have ids in its code (`alphaclock`, `rainforest`,
+    `genart`, `googlephotos`), but the listed ids (`skyview`,
+    `naturalandscape`, `monochrome`) appear nowhere in the APK: they come from
+    Sony's downloaded catalogue, so their stability depends on Sony's server,
+    not on app updates. The same ids drive the cloud `select_media`
+    capability, which suggests Sony treats them as stable. BRAVIA Connect's
+    Flutter library contains no theme ids.
+  - Still to check on the TV: how many themes the Living Decor app shows in
+    total, and whether using one outside the list pushes it into the three
+    rows (expected, as history). Ids: snapshot recorded here; re-check after
+    a firmware or Living Decor update.
 - Which Sony settings keys are writable from a normal app, if any?
 
 ## Out of scope, recorded so it is not re-asked
