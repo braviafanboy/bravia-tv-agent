@@ -559,7 +559,7 @@ Not exercised live: a full re-pairing (the pairing handler is unchanged).
     agent has ever reported, so the list grows to everything used at least
     once; and/or switch themes locally through the agent. Ids: snapshot
     recorded here; re-check after a firmware or Living Decor update.
-- Which Sony settings keys are writable from a normal app, if any?
+- ~~Which Sony settings keys are writable from a normal app, if any?~~ **None (checked 2026-11-04):** `com.sony.dtv.settingsprovider.permission.WRITE_SETTINGS` (and `WRITE_SECURE_SETTINGS`) are `signature|knownSigner`, so only Sony-signed apps can write; reading needs only the normal `READ_SETTINGS`. Settings that must be changed go through gRPC or REST instead (power saving already does).
 
 ## Out of scope, recorded so it is not re-asked
 
