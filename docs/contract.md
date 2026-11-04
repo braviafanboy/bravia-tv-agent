@@ -74,11 +74,14 @@ every request except `GET /v1/info` and `POST /v1/pair` must carry
   Pairing closes the window and replaces any earlier token. Opening or
   closing the window leaves open event streams alone; a changed or cleared
   token ends them.
-- Cloud delivery: launching the deep link `braviaagent://pair?token=<t>&name=<n>`
-  (cloud `application.deep_link`) stores `<t>` directly, no window. Sony's
-  DeviceControlService delivers it to the package's **main activity** with
-  the URI attached (not to the `VIEW` handler), so the status screen adopts
-  the token and finishes before drawing.
+- Cloud delivery of a token (`braviaagent://pair?token=…` through the
+  cloud `application.deep_link`) was removed in 0.4.1. It needed the same LAN
+  path to verify the token, so it never helped when local pairing failed; the
+  token went through Sony's service and into the TV's system log (Sony's
+  command processor logs whole commands); and the link handler accepted
+  links from any app or web page, so anything on the TV could take over the
+  pairing. Agents from 0.4.1 ignore pair links; integrations up to 0.4.1
+  that still send one fall back to the local launch.
 - `GET /v1/info.pairing` = `{"paired", "paired_with", "window_open",
   "window_seconds_left"}`; the mDNS TXT carries `p=0|1`.
 - Holding LEFT on the status screen clears the token.

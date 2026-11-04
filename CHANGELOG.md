@@ -6,6 +6,15 @@ under a `## <version>` heading, newest first.
 
 ## 0.4.1
 
+- Pairing is local only. The agent no longer accepts pairing links: any app
+  or web page on the TV could send one and take over the pairing, and when
+  Home Assistant paired through the Sony cloud link the token passed through
+  Sony's service and was written to the TV's system log (by the agent and by
+  Sony's command processor). Home Assistant now always pairs by launching the
+  agent and claiming a token in its 60-second window over TLS. Older
+  integrations fall back to that automatically. To replace a token that may
+  have been logged, hold LEFT on the agent's screen; Home Assistant pairs
+  again within seconds.
 - Living Decor theme list removed, together with Home Assistant's theme
   select. The TV only shows other apps the three most recently used themes,
   so the list could never offer the full catalogue. Living Decor itself can

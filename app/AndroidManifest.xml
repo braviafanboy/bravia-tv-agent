@@ -47,20 +47,6 @@
             android:exported="true"
             android:excludeFromRecents="true" />
 
-        <!-- Token delivery through the integration's cloud deep link: no UI. -->
-        <activity
-            android:name=".PairActivity"
-            android:exported="true"
-            android:theme="@android:style/Theme.NoDisplay"
-            android:excludeFromRecents="true">
-            <intent-filter>
-                <action android:name="android.intent.action.VIEW" />
-                <category android:name="android.intent.category.DEFAULT" />
-                <category android:name="android.intent.category.BROWSABLE" />
-                <data android:scheme="braviaagent" android:host="pair" />
-            </intent-filter>
-        </activity>
-
         <service
             android:name=".AgentService"
             android:exported="false"

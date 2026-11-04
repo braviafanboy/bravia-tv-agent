@@ -217,7 +217,13 @@ block, without which the Living Decor provider query returns a null cursor
 - Cloud delivery verified: `application.deep_link` with
   `braviaagent://pair?token=…&name=ha-cloud` launches the status screen with
   referrer `android-app://com.sony.dtv.devicecontrolservice` and the token is
-  adopted; the previous token stops working at once.
+  adopted; the previous token stops working at once. **Removed in agent
+  0.4.1 / integration 0.4.2** (2026-11-04): Sony's command processor logs the
+  whole command, token included; the token passed through Sony's service; the
+  exported, BROWSABLE `PairActivity` let any app or web page take over the
+  pairing; and the route needs the same LAN path as local pairing to verify
+  the token, so it never helped. Local re-pairing measured at 13 s, same as
+  the cloud route.
 - The same referrer is what a local gRPC `system_setting.application` launch
   produces (both go through DeviceControlService), so the window rule is
   "referrer host starts with `com.sony.`".

@@ -12,11 +12,10 @@ import java.security.SecureRandom;
  * the TV's own REST port). Once a token exists every request except /v1/info
  * and POST /v1/pair must carry {@code Authorization: Bearer <token>}.
  *
- * A token is obtained either through the pairing window (opened only when
- * the TV's own control service launched the status screen, i.e. the
- * integration's local launch) with {@code POST /v1/pair}, or delivered
- * directly by the cloud deep link
- * {@code braviaagent://pair?token=...}. Pairing again replaces the token.
+ * A token is obtained only through the pairing window (opened when the
+ * TV's own control service launched the status screen, i.e. the
+ * integration's local launch) with {@code POST /v1/pair}. Tokens delivered
+ * by deep link are no longer accepted. Pairing again replaces the token.
  */
 public final class Pairing {
     private static final String TAG = "BraviaAgent";
@@ -87,13 +86,6 @@ public final class Pairing {
         store(sb.toString(), name);
         windowUntil = 0;
         return token;
-    }
-
-    /** Token delivered out of band (cloud deep link). */
-    public synchronized void adopt(String newToken, String name) {
-        if (newToken == null || newToken.length() < 16) return;
-        store(newToken, name);
-        windowUntil = 0;
     }
 
     public synchronized void clear() {

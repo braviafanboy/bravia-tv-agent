@@ -59,10 +59,15 @@ public final class StatusActivity extends Activity {
         Intent intent = getIntent();
         Uri referrer = getReferrer();
         Uri data = intent == null ? null : intent.getData();
-        android.util.Log.i("BraviaAgent", "launched with referrer " + referrer + " data " + data);
-        if (PairActivity.adoptPairLink(this, intent)) {
-            // Sony's deep link lands on the main activity with the URI attached,
-            // not on the VIEW handler: take the token and leave without drawing.
+        // Never log a link's query (older integrations put a token in pair links).
+        String shown = data == null ? "null" : data.getScheme() + "://" + data.getHost() + (data.getQuery() != null ? "?…" : "");
+        android.util.Log.i("BraviaAgent", "launched with referrer " + referrer + " data " + shown);
+        if (isPairLink(data)) {
+            // Pairing links (cloud deep link) are no longer accepted: any app or
+            // web page could send one and take over the pairing. Integrations
+            // that still try them fall back to the local launch, which opens
+            // the pairing window. Leave without drawing.
+            android.util.Log.i("BraviaAgent", "ignored a pairing link; pairing is local only");
             finish();
             return;
         }
@@ -101,8 +106,8 @@ public final class StatusActivity extends Activity {
     protected void onNewIntent(Intent intent) {
         super.onNewIntent(intent);
         setIntent(intent);
-        if (PairActivity.adoptPairLink(this, intent)) { finish(); return; }
         Uri data = intent.getData();
+        if (isPairLink(data)) { finish(); return; }
         if (data != null && "braviaagent".equals(data.getScheme()) && "setup".equals(data.getHost())) {
             setupFlow = true;
             asked.clear();
@@ -381,5 +386,9 @@ public final class StatusActivity extends Activity {
         } catch (Exception ignored) {
         }
         return null;
+    }
+
+    private static boolean isPairLink(Uri data) {
+        return data != null && "braviaagent".equals(data.getScheme()) && "pair".equals(data.getHost());
     }
 }
