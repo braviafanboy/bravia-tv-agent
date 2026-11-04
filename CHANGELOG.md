@@ -4,6 +4,15 @@ The release workflow copies the section matching the tag into `agent.json`,
 which Home Assistant shows as the update's release notes. Keep each section
 under a `## <version>` heading, newest first.
 
+## 0.4.2
+
+- Picture settings added in newer firmware can be changed again, such as
+  Motionflow smoothness (film and camera). The agent read the settings with
+  version 1.1 of the TV's API but wrote them with version 1.0, which refuses
+  any setting it does not know, so those changes failed with "refused the
+  picture setting change". Verified on a BRAVIA 8 II by writing all 49
+  settings that were available at the time.
+
 ## 0.4.1
 
 - Pairing is local only. The agent no longer accepts pairing links: any app

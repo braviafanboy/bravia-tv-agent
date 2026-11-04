@@ -274,7 +274,9 @@ public final class PictureReader {
                 new JSONArray().put(new JSONObject().put("target", name).put("value", value))));
         } catch (Exception ignored) {
         }
-        authorizedCall("video", "setPictureQualitySettings", "1.0", params);
+        // 1.1, matching the reads: 1.0 only knows the original targets and
+        // refuses newer ones (Motionflow smoothness, …) as an illegal argument.
+        authorizedCall("video", "setPictureQualitySettings", "1.1", params);
         Log.i(TAG, "picture: wrote " + name);
         refresh();
     }
