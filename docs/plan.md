@@ -528,6 +528,24 @@ Not exercised live: a full re-pairing (the pairing handler is unchanged).
     serves only `quicklauncher/contents`. Living Decor also exposes a
     `MediaSelectorTraitService` to Sony's DeviceControlService (signature
     bind), presumably what the cloud `select_media` reaches.
+  - How Living Decor fills its catalogue: it embeds Sony's **Sony Select
+    SDK** (user agent `SonySelectSDK/1.1.0`). The SDK registers with Sony's
+    service, receives a `categoriesUrl`, and re-syncs periodically (categories
+    re-checked hourly by default, `categoriesMaxAge` 3600 s) into a local
+    database of categories, items, lists and links, validating each metadata
+    list against a downloaded certificate. Requests carry a service id, the
+    model name, country and language (`Accept-Language`), so the catalogue
+    is per region and model. Theme resources download separately on demand
+    (hence "not fully downloaded" themes). Artwork comes from
+    `images.erabu.sony.tv` ("erabu" is Japanese for "choose", Sony Select's
+    name in Japan). No server address is hard-coded in the APK and Living
+    Decor logs none, so it is assigned at registration. Every way into that
+    data is closed to other apps: the SDK provider is not exported, and
+    `com.sony.dtv.livingfit.debugconfig` (`edit_themes`, `edit_all_themes`)
+    needs the signature permission `USE_DEBUG_CONFIG`. Built-in themes
+    (alpha clock, rainforest, generative art, Google Photos, web/Unity
+    themes) ship as code in the APK but are still listed through the same
+    catalogue.
   - **Themes can be shown locally**: `am start -a android.intent.action.VIEW
     -d theme://monochrome` switched the TV to Monochrome (Living Decor's
     MainActivity handles the `theme` scheme) and updated its history. An
