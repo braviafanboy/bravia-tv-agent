@@ -212,12 +212,26 @@ public final class StatusActivity extends Activity {
             render();
             return true;
         }
-        if (keyCode == KeyEvent.KEYCODE_DPAD_LEFT && svc != null && event.getRepeatCount() == 0 && event.isLongPress()) {
-            svc.pairing().clear();
-            render();
+        if (keyCode == KeyEvent.KEYCODE_DPAD_LEFT) {
+            // Track the press so a hold reaches onKeyLongPress. (The long-press
+            // flag only ever arrives on a repeat, never on the first press.)
+            if (event.getRepeatCount() == 0) event.startTracking();
             return true;
         }
         return super.onKeyDown(keyCode, event);
+    }
+
+    /** Holding LEFT clears the pairing; the integration pairs again on its own. */
+    @Override
+    public boolean onKeyLongPress(int keyCode, KeyEvent event) {
+        AgentService svc = AgentService.instance();
+        if (keyCode == KeyEvent.KEYCODE_DPAD_LEFT && svc != null) {
+            svc.pairing().clear();
+            render();
+            toast("Pairing cleared");
+            return true;
+        }
+        return super.onKeyLongPress(keyCode, event);
     }
 
     @Override

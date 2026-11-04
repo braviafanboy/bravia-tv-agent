@@ -4,6 +4,12 @@ The release workflow copies the section matching the tag into `agent.json`,
 which Home Assistant shows as the update's release notes. Keep each section
 under a `## <version>` heading, newest first.
 
+## 0.4.1
+
+- Holding LEFT on the agent's screen clears its pairing again, as documented
+  (it never worked: the key handler waited for a long-press flag Android only
+  sets on repeats). Home Assistant pairs again on its own within seconds.
+
 ## 0.4.0
 
 - New built-in web server, replacing the unmaintained NanoHTTPD library. It
