@@ -475,6 +475,22 @@ and random bytes 400, plain HTTP refused; the server kept serving throughout.
 A full re-pairing was exercised later the same day (clear by hold LEFT, then
 local pairing): Home Assistant paired again in 12–13 s.
 
+## Picture writes: API version (2026-11-04, agent 0.4.2)
+
+The TV offers `getPictureQualitySettings` and `setPictureQualitySettings` in
+versions 1.0 and 1.1 only (`getMethodTypes`). Reads used 1.1 (66 targets on a
+BRAVIA 8 II) but writes used 1.0, which accepts just 11 targets (picture
+mode, brightness, colour, contrast, hue, sharpness, auto local dimming,
+colour temperature, light sensor, colour space, HDR mode) and refuses the rest
+with JSON-RPC error 3 ("Invalid picture quality setting"). So from 0.3.0 to
+0.4.1 most picture settings could not be changed. From 0.4.2 writes use 1.1.
+Verified in YouTube: contrast and black level through 1.1 visibly change the
+picture and the TV's picture menu follows; all 49 then-available targets
+accept a write. **Testing pitfall:** Twitch ignores picture changes during
+playback (the TV stores and shows the value, the picture stays), which first
+made 1.1 look broken; test picture writes in YouTube. `dumpsys … picture setv
+1.0|1.1 TARGET VALUE` forces a version for such tests.
+
 ## Open questions
 
 - Does the HTTP server keep its port after a Wi-Fi drop or IP change, and does

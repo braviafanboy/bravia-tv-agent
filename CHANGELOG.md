@@ -11,7 +11,7 @@ under a `## <version>` heading, newest first.
   local dimming, colour temperature, light sensor, colour space and HDR mode):
   the agent wrote with version 1.0 of the TV's API, which refuses every other
   setting, so changing for example Motionflow smoothness failed with "refused
-  the picture setting change". Those settings now go through version 1.1.
+  the picture setting change". Writes now use version 1.1, the same as reads.
   Verified on a BRAVIA 8 II: all 49 settings available at the time accept a
   write, contrast and black level visibly change the picture, and the TV's own
   picture menu shows the new values.

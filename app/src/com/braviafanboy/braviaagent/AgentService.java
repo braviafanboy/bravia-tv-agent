@@ -200,6 +200,12 @@ public final class AgentService extends Service implements HttpServer.InfoProvid
                         try { picture.writeTarget(args[2], args[3]); pw.println("ok"); }
                         catch (PictureReader.WriteException e) { pw.println("refused: " + e.code); }
                         break;
+                    case "setv":
+                        // picture setv VERSION TARGET VALUE: force an API version (testing).
+                        if (args.length < 5) { pw.println("usage: picture setv 1.0|1.1 TARGET VALUE"); break; }
+                        try { picture.writeTarget(args[3], args[4], args[2]); pw.println("ok"); }
+                        catch (PictureReader.WriteException e) { pw.println("refused: " + e.code); }
+                        break;
                     case "config": {
                         Integer poll = args.length > 2 ? Integer.valueOf(args[2]) : null;
                         Boolean ev = args.length > 3 ? Boolean.valueOf(args[3]) : null;

@@ -259,12 +259,12 @@ public final class PictureReader {
     // ---- writes -----------------------------------------------------------
 
     /** Write one picture target after validating it against the last read. */
-    /** Targets setPictureQualitySettings 1.0 accepts (from the TV's WebAPI). */
-    private static final java.util.Set<String> V1_0_TARGETS = new java.util.HashSet<>(java.util.Arrays.asList(
-        "brightness", "color", "contrast", "hue", "sharpness", "autoLocalDimming",
-        "colorTemperature", "lightSensor", "colorSpace", "hdrMode"));
-
     public void writeTarget(String name, String value) throws WriteException {
+        writeTarget(name, value, null);
+    }
+
+    /** {@code forceVersion} null writes with 1.1; "1.0" forces the old version (adb testing). */
+    public void writeTarget(String name, String value, String forceVersion) throws WriteException {
         JSONObject t;
         synchronized (this) {
             if (!available || targets == null) throw new WriteException("rest_unavailable");
@@ -279,13 +279,12 @@ public final class PictureReader {
                 new JSONArray().put(new JSONObject().put("target", name).put("value", value))));
         } catch (Exception ignored) {
         }
-        // 1.0 writes its targets to the current picture mode, the path the TV's
-        // own menu follows and that has worked since the first release. 1.0
-        // refuses every other target (JSON-RPC error 3, "Invalid picture quality
-        // setting"), so those go through 1.1, which applies them too (black
-        // level verified on screen). Some apps, such as Twitch, do not follow
-        // picture changes at all; that is the app, not the write.
-        String version = V1_0_TARGETS.contains(name) ? "1.0" : "1.1";
+        // 1.1, matching the reads. 1.0 only accepts 11 targets and refuses the
+        // rest with JSON-RPC error 3 ("Invalid picture quality setting"). 1.1
+        // writes and applies all of them (contrast and black level verified on
+        // screen). Some apps, such as Twitch, do not follow picture changes
+        // during playback at all; that is the app, not the write.
+        String version = forceVersion != null ? forceVersion : "1.1";
         authorizedCall("video", "setPictureQualitySettings", version, params);
         Log.i(TAG, "picture: wrote " + name);
         refresh();
