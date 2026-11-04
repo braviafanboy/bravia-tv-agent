@@ -472,8 +472,12 @@ Not exercised live: a full re-pairing (the pairing handler is unchanged).
 - Does the HTTP server keep its port after a Wi-Fi drop or IP change, and does
   the mDNS advert come back? (Phase 3 soak test; the standby question is
   answered below.)
-- Does the Living Decor provider also list downloaded/seasonal themes, and do
-  the ids stay stable across Living Decor updates? Findings 2026-11-04 (Living
+- ~~Does the Living Decor provider also list downloaded/seasonal themes, and do
+  the ids stay stable across Living Decor updates?~~ **Closed 2026-11-04:
+  Living Decor theme support removed** from the agent (0.4.1) and the
+  integration (0.4.2), at the user's decision. The provider only lists the
+  three most recent themes, the catalogue cannot be read, and opening Living
+  Decor as an app covers the main use. Findings kept below for reference. Findings 2026-11-04 (Living
   Decor = `com.sony.dtv.livingfit` v2.37.22, factory image, never updated):
   - The provider feeds the TV's **quick-menu Living Decor row, not the
     catalogue**: every query returns the same 3 rows (`hMax=3`; here 2 from

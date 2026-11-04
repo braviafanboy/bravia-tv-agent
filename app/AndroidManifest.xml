@@ -25,11 +25,6 @@
     <!-- Sony's settings provider; protection level "normal". -->
     <uses-permission android:name="com.sony.dtv.settingsprovider.permission.READ_SETTINGS" />
 
-    <!-- Package visibility (Android 11+): needed to query Living Decor's provider. -->
-    <queries>
-        <provider android:authorities="com.sony.dtv.livingfit" />
-    </queries>
-
     <application
         android:label="HA TV Agent"
         android:banner="@android:drawable/sym_def_app_icon"

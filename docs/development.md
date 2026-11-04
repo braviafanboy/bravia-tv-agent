@@ -68,7 +68,6 @@ privileged permission:
 | Remote-control battery level | The bundled remote is a Bluetooth HID device with the battery profile |
 | HDMI input connection changes | TvInputManager callbacks; gRPC only has this by polling |
 | Audio route and per-stream volumes | AudioManager |
-| Living Decor theme list | The app's content provider; the TV never lists themes to the cloud |
 | Selected Sony global settings (power saving, idle standby, auto shut-off, remote start, BRAVIA Sync options, LED behaviour, parental restrictions) | Sony's settings provider; its read permission is normal-level |
 | Wi-Fi signal strength and link speed | WifiManager |
 | Picture settings | The TV's REST IP control, called on loopback so nothing extra is exposed on the network |

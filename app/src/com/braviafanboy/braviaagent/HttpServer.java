@@ -4,7 +4,6 @@ import android.util.Log;
 
 import com.braviafanboy.braviaagent.readers.MediaReader;
 import com.braviafanboy.braviaagent.readers.PictureReader;
-import com.braviafanboy.braviaagent.readers.ThemesReader;
 
 import org.json.JSONArray;
 import org.json.JSONObject;
@@ -21,7 +20,7 @@ import java.util.concurrent.TimeUnit;
 
 import javax.net.ServerSocketFactory;
 
-/** The agent's HTTP surface: /v1/info, /v1/state, /v1/themes, /v1/events (SSE). */
+/** The agent's HTTP surface: /v1/info, /v1/state, /v1/events (SSE), artwork, picture settings, pairing. */
 public final class HttpServer implements Server.Handler {
     private static final String TAG = "BraviaAgent";
     public static final int CONTRACT = 1;
@@ -37,7 +36,6 @@ public final class HttpServer implements Server.Handler {
     private static final int MAX_CONNECTIONS = 8;
 
     private final StateStore store;
-    private final ThemesReader themes;
     private final InfoProvider info;
     private final MediaReader media;
     private final Pairing pairing;
@@ -53,10 +51,9 @@ public final class HttpServer implements Server.Handler {
         JSONObject info();
     }
 
-    public HttpServer(android.content.Context context, int port, StateStore store, ThemesReader themes, InfoProvider info, MediaReader media, Pairing pairing, PictureReader picture) {
+    public HttpServer(android.content.Context context, int port, StateStore store, InfoProvider info, MediaReader media, Pairing pairing, PictureReader picture) {
         this.port = port;
         this.store = store;
-        this.themes = themes;
         this.info = info;
         this.media = media;
         this.pairing = pairing;
@@ -101,11 +98,6 @@ public final class HttpServer implements Server.Handler {
         if (!"GET".equals(session.method)) return error(405, "method_not_allowed");
         switch (path) {
             case "/v1/state": return json(store.snapshot());
-            case "/v1/themes": {
-                JSONObject o = new JSONObject();
-                try { o.put("themes", themes.themes()); } catch (Exception ignored) { }
-                return json(o);
-            }
             case "/v1/events": return events();
             case MediaReader.ARTWORK_PATH: {
                 byte[] img = media == null ? null : media.artwork();

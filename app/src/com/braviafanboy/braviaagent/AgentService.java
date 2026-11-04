@@ -23,7 +23,6 @@ import com.braviafanboy.braviaagent.readers.InputsReader;
 import com.braviafanboy.braviaagent.readers.MediaReader;
 import com.braviafanboy.braviaagent.readers.PictureReader;
 import com.braviafanboy.braviaagent.readers.SettingsReader;
-import com.braviafanboy.braviaagent.readers.ThemesReader;
 import com.braviafanboy.braviaagent.readers.WifiReader;
 
 import org.json.JSONArray;
@@ -56,7 +55,6 @@ public final class AgentService extends Service implements HttpServer.InfoProvid
     private BluetoothReader bluetooth;
     private WifiReader wifi;
     private SettingsReader settings;
-    private ThemesReader themes;
     private PictureReader picture;
     private RestClient rest;
     private RestAuth restAuth;
@@ -92,7 +90,6 @@ public final class AgentService extends Service implements HttpServer.InfoProvid
             if (tokenChanged && server != null) server.closeStreams();
         }));
         identity.setCallback(id -> new android.os.Handler(getMainLooper()).post(this::registerMdns));
-        themes = new ThemesReader(this);
         environment = new EnvironmentReader(this, store);
         display = new DisplayReader(this, store);
         inputs = new InputsReader(this, store);
@@ -109,7 +106,7 @@ public final class AgentService extends Service implements HttpServer.InfoProvid
         inputs.start();
         identity.start();
         if (display.isPanelOn()) resumeReaders(); else Log.i(TAG, "panel off at start: readers paused");
-        server = new HttpServer(this, PORT, store, themes, this, media, pairing, picture);
+        server = new HttpServer(this, PORT, store, this, media, pairing, picture);
         server.setRest(rest, restAuth);
         try {
             tls = Tls.load(this);
@@ -332,7 +329,7 @@ public final class AgentService extends Service implements HttpServer.InfoProvid
             Updater u = new Updater(this);
             upd.put("pending_version", u.pendingUrl() == null ? JSONObject.NULL : u.pendingVersion());
             o.put("update", upd);
-            o.put("endpoints", new JSONArray(Arrays.asList("/v1/state", "/v1/events", "/v1/themes", MediaReader.ARTWORK_PATH,
+            o.put("endpoints", new JSONArray(Arrays.asList("/v1/state", "/v1/events", MediaReader.ARTWORK_PATH,
                 HttpServer.PICTURE_REFRESH_PATH, HttpServer.PICTURE_PATH, HttpServer.PICTURE_CONFIG_PATH,
                 HttpServer.POWER_SAVING_PATH, HttpServer.REST_AUTH_PATH, HttpServer.REST_PSK_PATH)));
         } catch (Exception ignored) {

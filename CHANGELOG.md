@@ -6,6 +6,10 @@ under a `## <version>` heading, newest first.
 
 ## 0.4.1
 
+- Living Decor theme list removed, together with Home Assistant's theme
+  select. The TV only shows other apps the three most recently used themes,
+  so the list could never offer the full catalogue. Living Decor itself can
+  still be opened as an app from Home Assistant.
 - Holding LEFT on the agent's screen clears its pairing again, as documented
   (it never worked: the key handler waited for a long-press flag Android only
   sets on repeats). Home Assistant pairs again on its own within seconds.

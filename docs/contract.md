@@ -21,7 +21,7 @@ are JSON numbers; enums are lower-case strings.
     "bluetooth_connect": false,
     "install_packages": true
   },
-  "endpoints": ["/v1/state", "/v1/events", "/v1/themes", "/v1/media/artwork"],
+  "endpoints": ["/v1/state", "/v1/events", "/v1/media/artwork"],
   "pairing": {"paired": true, "paired_with": "Home Assistant", "window_open": false, "window_seconds_left": 0},
   "update": {"pending_version": null},
   "tls": {"fingerprint_sha256": "0123abcd…"}
@@ -272,19 +272,11 @@ Bearer. Forgets the stored credential.
   per second).
 - `heartbeat` — empty data every 30 s.
 
-## `GET /v1/themes`
+## `GET /v1/themes` (removed in 0.4.1)
 
-```json
-{
-  "themes": [
-    {"id": "theme://skyview", "title": "Dawn to Dusk",
-     "description": "Feel the slow flow of time as the sky changes over the course of a day.",
-     "thumbnail": "https://images.erabu.sony.tv/icons/….png"}
-  ]
-}
-```
-
-`id` is what the integration passes to `play_media` with media type `theme`.
+Returned Living Decor's theme list. Removed with the integration's theme
+support: the TV only lists the three most recently used themes to other
+apps. Agents from 0.4.1 answer 404; integrations up to 0.4.1 ignore that.
 
 ## `GET /v1/media/artwork`
 

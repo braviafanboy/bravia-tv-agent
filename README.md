@@ -17,8 +17,6 @@ Home Assistant integration. It has no purpose on its own.
   and, with an IP control key, changed from Home Assistant.
 - **Remote and panel.** The remote's battery level and connection, and
   whether the screen is actually lit.
-- **Living Decor themes.** The theme list, so Home Assistant can show one by
-  name.
 
 The integration's [entity reference](https://github.com/braviafanboy/bravia-tv-grpc-homeassistant/blob/main/docs/entities.md)
 lists every entity the agent provides.
