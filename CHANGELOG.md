@@ -9,6 +9,9 @@ under a `## <version>` heading, newest first.
 - Holding LEFT on the agent's screen clears its pairing again, as documented
   (it never worked: the key handler waited for a long-press flag Android only
   sets on repeats). Home Assistant pairs again on its own within seconds.
+- Clearer button help on the agent's screen: one line per remote button
+  (RIGHT, Hold LEFT, BACK, and OK when a permission is missing) with what it
+  does, below the status rows. The TV's address moved next to the version.
 
 ## 0.4.0
 

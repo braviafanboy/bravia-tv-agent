@@ -43,8 +43,8 @@ public final class StatusActivity extends Activity {
 
     private final Handler handler = new Handler(Looper.getMainLooper());
     private LinearLayout rows;
-    private TextView hint;
-    private TextView footer;
+    private TextView versionLine;
+    private LinearLayout keys;
     private final Runnable refresh = new Runnable() {
         @Override public void run() {
             render();
@@ -192,7 +192,7 @@ public final class StatusActivity extends Activity {
 
     /**
      * OK: grant whatever is missing. RIGHT: open the 60 s pairing window.
-     * Hold LEFT: unpair. BACK closes.
+     * Hold LEFT: forget the pairing. BACK closes. (Listed on screen.)
      */
     @Override
     public boolean onKeyDown(int keyCode, KeyEvent event) {
@@ -268,7 +268,8 @@ public final class StatusActivity extends Activity {
         TextView title = label("HA TV Agent", 30, Color.WHITE);
         title.setTypeface(android.graphics.Typeface.DEFAULT_BOLD);
         root.addView(title);
-        root.addView(label("Version " + AgentService.VERSION, 16, DIM_COLOR));
+        versionLine = label("Version " + AgentService.VERSION, 16, DIM_COLOR);
+        root.addView(versionLine);
         root.addView(label(DISCLAIMER, 16, DIM_COLOR));
 
         rows = new LinearLayout(this);
@@ -276,11 +277,11 @@ public final class StatusActivity extends Activity {
         rows.setPadding(0, dp(28), 0, dp(28));
         root.addView(rows);
 
-        hint = label("", 18, Color.WHITE);
-        root.addView(hint);
-        footer = label("", 14, DIM_COLOR);
-        footer.setPadding(0, dp(16), 0, 0);
-        root.addView(footer);
+        // Remote buttons: one per line, aligned with the status rows but
+        // smaller and grey, so they read as instructions, not status.
+        keys = new LinearLayout(this);
+        keys.setOrientation(LinearLayout.VERTICAL);
+        root.addView(keys);
         setContentView(root);
     }
 
@@ -321,12 +322,25 @@ public final class StatusActivity extends Activity {
                 row("Picture settings", "Read only (no key)", TODO_COLOR);
             }
         }
-        StringBuilder h = new StringBuilder();
-        if (!allGranted()) h.append("OK  grant the missing permissions      ");
-        h.append("BACK  close");
-        hint.setText(h.toString());
         String ip = ownIpv4();
-        footer.setText((ip == null ? "" : ip + "  ·  ") + "→ pairing window  ·  hold ← unpair");
+        versionLine.setText("Version " + AgentService.VERSION + (ip == null ? "" : "  ·  " + ip));
+        keys.removeAllViews();
+        if (!allGranted()) keyRow("OK", "Grant missing permissions");
+        keyRow("RIGHT", "Allow pairing for 60 s");
+        keyRow("Hold LEFT", "Forget the pairing");
+        keyRow("BACK", "Close");
+    }
+
+    private void keyRow(String button, String action) {
+        LinearLayout line = new LinearLayout(this);
+        line.setOrientation(LinearLayout.HORIZONTAL);
+        line.setPadding(0, dp(3), 0, dp(3));
+        TextView k = label(button, 17, DIM_COLOR);
+        k.setTypeface(android.graphics.Typeface.DEFAULT_BOLD);
+        k.setLayoutParams(new LinearLayout.LayoutParams(dp(260), LinearLayout.LayoutParams.WRAP_CONTENT));
+        line.addView(k);
+        line.addView(label(action, 17, DIM_COLOR));
+        keys.addView(line);
     }
 
     private void grantRow(String name, boolean granted, String missing) {
