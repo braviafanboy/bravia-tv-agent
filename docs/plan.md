@@ -371,6 +371,22 @@ Design rationale and every verified fact behind it: `bravia-research/docs/rest-i
 
 **Agent 0.3.1 (2026-11-04):** Normal (PIN) authentication removed at the user's request: Japan-only on the TV, never reachable from the integration, untested. The pre-shared key is the only write credential; the R2 notes above describe the removed PIN flow for the record.
 
+**Artwork survey (2026-11-04, live, temporary probe since removed):** what each app puts in its media session.
+
+| App | Title | Artwork | Art URI |
+|---|---|---|---|
+| Spotify | full metadata (22 keys) | 300×300 bitmap | https Spotify CDN, the same 300×300 JPEG (63 KB) |
+| YouTube | title, channel | 640×360 bitmap | none (no video id either) |
+| YouTube Music (plays in the YouTube app) | title, artist, album | 544×306 bitmap | none |
+| Disney+ | title, duration | none | none |
+| Apple TV | duration only | none | none |
+| Sony Pictures Core | duration, empty ids | none | none |
+| Netflix, Twitch | metadata null | none | none |
+| Prime Video | catalog id only | none | none |
+| Kick, BBC iPlayer (HbbTV in the tuner) | no media session | none | none |
+
+Encoder benchmark on the TV (median of 3, background priority): JPEG q90 4–7 ms CPU vs lossy WebP 41–79 ms, lossless WebP 23–118 ms (but 180–220 KB), PNG 41–169 ms. Decision: full-size bitmap as JPEG q90, cap 1024 px; no URI pass-through (no app gains resolution from it), no CDN URL rewriting.
+
 ### Deferred
 
 - Direct REST client in the integration for agent-less setups (same entities, Normal auth with the cookie in the config entry).

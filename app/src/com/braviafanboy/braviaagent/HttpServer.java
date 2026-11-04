@@ -103,7 +103,7 @@ public final class HttpServer extends NanoHTTPD {
             case MediaReader.ARTWORK_PATH: {
                 byte[] img = media == null ? null : media.artwork();
                 if (img == null) return error(Response.Status.NOT_FOUND, "no_artwork");
-                Response r = newFixedLengthResponse(Response.Status.OK, "image/webp", new ByteArrayInputStream(img), img.length);
+                Response r = newFixedLengthResponse(Response.Status.OK, "image/jpeg", new ByteArrayInputStream(img), img.length);
                 r.addHeader("Cache-Control", "no-store");
                 return r;
             }

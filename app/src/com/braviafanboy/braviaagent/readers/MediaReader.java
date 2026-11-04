@@ -33,7 +33,12 @@ public final class MediaReader {
     // Clients extrapolate from position + timestamp; a tick a minute corrects drift.
     private static final long TICK_MS = 60000;
     private static final long RECHECK_MS = 30000;
-    private static final int ARTWORK_MAX = 320;
+    /**
+     * Upper bound only: apps hand over small bitmaps (measured: YouTube
+     * 640x360, YouTube Music 544x306, Spotify 300x300), which are kept at full
+     * size.
+     */
+    private static final int ARTWORK_MAX = 1024;
     public static final String ARTWORK_PATH = "/v1/media/artwork";
 
     private final StateStore store;
@@ -76,7 +81,7 @@ public final class MediaReader {
         return notifications != null && notifications.isNotificationListenerAccessGranted(listener);
     }
 
-    /** Current artwork as WebP, encoded on demand; null when there is none. */
+    /** Current artwork as JPEG, encoded on demand; null when there is none. */
     public byte[] artwork() {
         Bitmap bmp;
         int rev;
@@ -101,8 +106,19 @@ public final class MediaReader {
                 float f = ARTWORK_MAX / (float) Math.max(w, h);
                 scaled = Bitmap.createScaledBitmap(bmp, Math.max(1, Math.round(w * f)), Math.max(1, Math.round(h * f)), true);
             }
+            if (scaled.hasAlpha()) {
+                // JPEG has no transparency: flatten onto black (artwork is
+                // normally opaque; this only matters for icon-like art).
+                Bitmap opaque = Bitmap.createBitmap(scaled.getWidth(), scaled.getHeight(), Bitmap.Config.ARGB_8888);
+                android.graphics.Canvas canvas = new android.graphics.Canvas(opaque);
+                canvas.drawColor(android.graphics.Color.BLACK);
+                canvas.drawBitmap(scaled, 0, 0, null);
+                scaled = opaque;
+            }
+            // JPEG: ~10x less CPU than lossy WebP on this TV (measured 4-7 ms vs
+            // 41-79 ms per artwork at 300-640 px); size does not matter on the LAN.
             ByteArrayOutputStream out = new ByteArrayOutputStream();
-            scaled.compress(Bitmap.CompressFormat.WEBP_LOSSY, 80, out);
+            scaled.compress(Bitmap.CompressFormat.JPEG, 90, out);
             return out.toByteArray();
         } catch (Exception e) {
             return null;

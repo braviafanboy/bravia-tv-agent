@@ -158,8 +158,8 @@ Field notes:
   once a minute while playing and while a client holds `/v1/events` (clients
   extrapolate from `ts`);
   `artwork_url` is set only while an image is available from
-  `GET /v1/media/artwork` (404 otherwise; WebP, max 320 px, encoded on first
-  fetch) and carries a `?v=<n>` revision that changes with every new image,
+  `GET /v1/media/artwork` (404 otherwise; JPEG at the app's full resolution, max
+  1024 px, encoded on first fetch) and carries a `?v=<n>` revision that changes with every new image,
   so clients can cache on the full URL.
 - `environment.temperature_c` is `null` only until the sensor has ever
   reported (it is on-change in 0.5 °C steps and sends no initial value); the

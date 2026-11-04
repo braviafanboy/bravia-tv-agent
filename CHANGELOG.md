@@ -6,6 +6,9 @@ under a `## <version>` heading, newest first.
 
 ## 0.3.1
 
+- Sharper now-playing artwork: sent at the app's full resolution (YouTube
+  640×360 instead of 320×180, Spotify album art 300×300) as JPEG, which costs
+  the TV about a tenth of the CPU of the previous WebP encoding.
 - Removed Sony's PIN-based Normal authentication for the TV's IP control. The
   TV's PIN service refuses every set outside Japan, and the pre-shared key
   entered in Home Assistant works everywhere, so the key is now the only
