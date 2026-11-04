@@ -6,12 +6,18 @@ under a `## <version>` heading, newest first.
 
 ## 0.4.2
 
-- Picture settings added in newer firmware can be changed again, such as
-  Motionflow smoothness (film and camera). The agent read the settings with
-  version 1.1 of the TV's API but wrote them with version 1.0, which refuses
-  any setting it does not know, so those changes failed with "refused the
-  picture setting change". Verified on a BRAVIA 8 II by writing all 49
-  settings that were available at the time.
+- Every picture setting can now be changed from Home Assistant. Until now only
+  11 could (picture mode, brightness, colour, contrast, hue, sharpness, auto
+  local dimming, colour temperature, light sensor, colour space and HDR mode):
+  the agent wrote with version 1.0 of the TV's API, which refuses every other
+  setting, so changing for example Motionflow smoothness failed with "refused
+  the picture setting change". Those settings now go through version 1.1.
+  Verified on a BRAVIA 8 II: all 49 settings available at the time accept a
+  write, contrast and black level visibly change the picture, and the TV's own
+  picture menu shows the new values.
+- Note: some apps ignore picture setting changes while they play. In Twitch
+  the TV stored and showed the new value but the picture did not change; in
+  YouTube it did.
 
 ## 0.4.1
 
