@@ -131,7 +131,6 @@ every request except `GET /v1/info` and `POST /v1/pair` must carry
     "scheme": "https",
     "auth": "none",
     "write_authorized": false,
-    "cookie_expires": null,
     "poll_s": 60,
     "event_refresh": true,
     "watch": []
@@ -195,12 +194,12 @@ Field notes:
   TV. `rest.available` is false when
   IP control does not answer (Remote device settings → Control remotely off, or not yet up after wake); then
   `picture` and `power_saving` are `null`. Reads need no credential.
-  `auth` is the stored write credential: `none`, `cookie` (Normal-auth
-  session from PIN registration) or `psk`. `write_authorized` is true while
-  that credential last worked (registration, verification or a write);
-  `cookie_expires` is the cookie's expiry (14 days, renewed by the agent once
-  less than 7 remain). `poll_s`, `event_refresh` and `watch` are the refresh
-  settings set with `POST /v1/picture/config`.
+  `auth` is the stored write credential: `none` or `psk` (the TV's IP-control
+  pre-shared key). `write_authorized` is true while that key last worked
+  (verification or a write). `poll_s`, `event_refresh` and `watch` are the
+  refresh settings set with `POST /v1/picture/config`. (Agent 0.3.0 also had a
+  Normal-auth cookie, `auth: cookie` and `cookie_expires`; removed in 0.3.1, as
+  the TV's PIN service only works on Japanese sets.)
 - `picture.targets` holds every picture-quality target the TV reports for the
   current picture mode, unchanged: `value` is the TV's string, `available` its
   `isAvailable` (false e.g. for the three Ambient Optimisation sub-switches
@@ -243,8 +242,7 @@ settings.
 Bearer. Body `{"target": "contrast", "value": "91"}`. Validated against the
 last read: unknown target 404 `unknown_target`, `available: false` 409
 `target_unavailable`, value outside the candidates 400 `invalid_value`. Then
-written with the stored credential; a rejected cookie is renewed once and the
-write retried. No credential, or rejected: 403 `rest_unauthorized` (and
+written with the stored pre-shared key. No key, or rejected: 403 `rest_unauthorized` (and
 `write_authorized` turns false). IP control not answering: 503
 `rest_unavailable`. Success `{"ok": true}`, followed by a re-read.
 
@@ -252,26 +250,10 @@ write retried. No credential, or rejected: 403 `rest_unauthorized` (and
 
 Bearer. Same error handling as `POST /v1/picture`.
 
-## `POST /v1/rest/register`
-
-Bearer. Normal authentication with the TV's REST API, in two steps:
-
-1. Without parameters: the TV shows a registration PIN on screen. Answers
-   `{"status": "pin_shown"}`. (`{"status": "registered"}` if the TV asks for
-   no authentication; 409 `normal_auth_not_supported` when the TV refuses
-   Normal authentication, which **every non-Japanese set does** (the TV's PIN
-   service is Japan-only); use `POST /v1/rest/psk` there. 503
-   `rest_unavailable`.)
-2. `?pin=NNNN` with the PIN from the screen: answers
-   `{"status": "registered"}` and stores the session cookie (replacing any
-   pre-shared key); 403 `pin_rejected` for a wrong PIN.
-
-The PIN, the cookie and any key are never returned, logged or shown.
-
 ## `POST /v1/rest/psk`
 
-Bearer. Body `{"psk": "..."}`: stores a pre-shared key (replacing any cookie)
-and verifies it with a read that requires it. Answers
+Bearer. Body `{"psk": "..."}`: stores the IP-control pre-shared key and
+verifies it with a read that requires it. Answers
 `{"write_authorized": true|false}`.
 
 ## `DELETE /v1/rest/auth`

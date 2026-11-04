@@ -39,7 +39,7 @@ public final class AgentService extends Service implements HttpServer.InfoProvid
     private static final int NOTIFICATION_ID = 1;
     public static final int PORT = 8585;
     public static final String SERVICE_TYPE = "_bravia-agent._tcp";
-    public static final String VERSION = "0.3.0";
+    public static final String VERSION = "0.3.1";
 
     private static volatile AgentService instance;
 
@@ -159,8 +159,7 @@ public final class AgentService extends Service implements HttpServer.InfoProvid
      *
      * <pre>
      *   (no args)                       status
-     *   rest register | rest pin NNNN   Normal-auth registration (shows a PIN on the TV)
-     *   rest psk KEY | rest verify | rest renew | rest forget
+     *   rest psk KEY | rest verify | rest forget
      *   picture refresh | picture get TARGET | picture set TARGET VALUE
      *   picture config POLL_S EVENT_REFRESH(true|false) [T1,T2,...]
      *   power_saving off|low|high
@@ -184,15 +183,12 @@ public final class AgentService extends Service implements HttpServer.InfoProvid
         try {
             if ("rest".equals(cmd)) {
                 switch (sub) {
-                    case "register": pw.println(restAuth.beginRegister(rest)); break;
-                    case "pin": pw.println(args.length > 2 ? restAuth.completeRegister(rest, args[2]) : "usage: rest pin NNNN"); break;
                     case "psk":
                         if (args.length < 3) { pw.println("usage: rest psk KEY"); break; }
                         restAuth.setPsk(args[2]);
                         pw.println("verified=" + restAuth.verify(rest));
                         break;
                     case "verify": pw.println("verified=" + restAuth.verify(rest)); break;
-                    case "renew": pw.println("renewed=" + restAuth.renew(rest)); break;
                     case "forget": restAuth.forget(); pw.println("forgotten"); break;
                     default: break;
                 }
@@ -336,7 +332,7 @@ public final class AgentService extends Service implements HttpServer.InfoProvid
             o.put("update", upd);
             o.put("endpoints", new JSONArray(Arrays.asList("/v1/state", "/v1/events", "/v1/themes", MediaReader.ARTWORK_PATH,
                 HttpServer.PICTURE_REFRESH_PATH, HttpServer.PICTURE_PATH, HttpServer.PICTURE_CONFIG_PATH,
-                HttpServer.POWER_SAVING_PATH, HttpServer.REST_REGISTER_PATH, HttpServer.REST_AUTH_PATH, HttpServer.REST_PSK_PATH)));
+                HttpServer.POWER_SAVING_PATH, HttpServer.REST_AUTH_PATH, HttpServer.REST_PSK_PATH)));
         } catch (Exception ignored) {
         }
         return o;

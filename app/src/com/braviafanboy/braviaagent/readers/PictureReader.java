@@ -171,7 +171,6 @@ public final class PictureReader {
         worker.execute(() -> {
             fullQueued.set(false);
             boolean ok = readFull();
-            auth.renewIfDue(rest);
             handler.post(() -> reschedule(ok));
         });
     }
@@ -289,7 +288,7 @@ public final class PictureReader {
         refresh();
     }
 
-    /** A credentialled call; on a rejected cookie, renew once and retry. */
+    /** A call with the pre-shared key. */
     private void authorizedCall(String service, String method, String version, JSONArray params) throws WriteException {
         Map<String, String> h = auth.headers();
         if (h.isEmpty()) throw new WriteException("rest_unauthorized");
@@ -297,27 +296,16 @@ public final class PictureReader {
             rest.exchange(service, method, version, params, h);
             auth.markAuthorized(true);
             publish();
-            return;
         } catch (RestClient.RestException e) {
             if (e.kind == RestClient.RestException.Kind.UNAVAILABLE) throw new WriteException("rest_unavailable");
-            if (e.kind != RestClient.RestException.Kind.AUTH_REQUIRED) {
-                Log.w(TAG, "picture: " + method + " " + e.kind + " " + e.code);
-                throw new WriteException("rest_error");
-            }
-        }
-        if ("cookie".equals(auth.mode()) && auth.renew(rest)) {
-            try {
-                rest.exchange(service, method, version, params, auth.headers());
-                auth.markAuthorized(true);
+            if (e.kind == RestClient.RestException.Kind.AUTH_REQUIRED) {
+                auth.markAuthorized(false);
                 publish();
-                return;
-            } catch (RestClient.RestException e) {
-                if (e.kind == RestClient.RestException.Kind.UNAVAILABLE) throw new WriteException("rest_unavailable");
+                throw new WriteException("rest_unauthorized");
             }
+            Log.w(TAG, "picture: " + method + " " + e.kind + " " + e.code);
+            throw new WriteException("rest_error");
         }
-        auth.markAuthorized(false);
-        publish();
-        throw new WriteException("rest_unauthorized");
     }
 
     /** Range candidates: integer within [min, max] on the step; value lists: one of them. */
@@ -355,8 +343,6 @@ public final class PictureReader {
                 restBlock.put("scheme", available && rest.scheme() != null ? rest.scheme() : JSONObject.NULL);
                 restBlock.put("auth", auth.mode());
                 restBlock.put("write_authorized", auth.writeAuthorized());
-                long exp = auth.cookieExpiresMs();
-                restBlock.put("cookie_expires", exp > 0 ? iso.format(new Date(exp)) : JSONObject.NULL);
                 restBlock.put("poll_s", pollSeconds());
                 restBlock.put("event_refresh", eventRefresh());
                 restBlock.put("watch", new JSONArray(watched()));

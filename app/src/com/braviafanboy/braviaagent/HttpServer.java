@@ -28,7 +28,6 @@ public final class HttpServer extends NanoHTTPD {
     public static final String PICTURE_PATH = "/v1/picture";
     public static final String PICTURE_CONFIG_PATH = "/v1/picture/config";
     public static final String POWER_SAVING_PATH = "/v1/power_saving";
-    public static final String REST_REGISTER_PATH = "/v1/rest/register";
     public static final String REST_AUTH_PATH = "/v1/rest/auth";
     public static final String REST_PSK_PATH = "/v1/rest/psk";
     private static final long HEARTBEAT_MS = 30000;
@@ -90,7 +89,6 @@ public final class HttpServer extends NanoHTTPD {
         if (PICTURE_PATH.equals(path)) return pictureWrite(session);
         if (PICTURE_CONFIG_PATH.equals(path)) return pictureConfig(session);
         if (POWER_SAVING_PATH.equals(path)) return powerSaving(session);
-        if (REST_REGISTER_PATH.equals(path)) return restRegister(session);
         if (REST_AUTH_PATH.equals(path)) return restForget(session);
         if (REST_PSK_PATH.equals(path)) return restPsk(session);
         if (session.getMethod() != Method.GET) return error(Response.Status.METHOD_NOT_ALLOWED, "method_not_allowed");
@@ -202,31 +200,6 @@ public final class HttpServer extends NanoHTTPD {
         return json(o);
     }
 
-    /**
-     * POST /v1/rest/register: ask the TV to show a registration PIN.
-     * POST /v1/rest/register?pin=NNNN: complete it with the PIN the TV showed.
-     */
-    private Response restRegister(IHTTPSession session) {
-        if (session.getMethod() != Method.POST) return error(Response.Status.METHOD_NOT_ALLOWED, "method_not_allowed");
-        if (rest == null || restAuth == null) return error(Response.Status.NOT_FOUND, "not_found");
-        String pin = param(session, "pin");
-        RestAuth.Outcome outcome;
-        if (pin == null) {
-            outcome = restAuth.beginRegister(rest);
-        } else {
-            if (!pin.matches("\\d{1,8}")) return error(Response.Status.BAD_REQUEST, "pin_digits_required");
-            outcome = restAuth.completeRegister(rest, pin);
-        }
-        if (picture != null) picture.publish();
-        switch (outcome) {
-            case PIN_SHOWN: return status("pin_shown");
-            case REGISTERED: return status("registered");
-            case PIN_REJECTED: return error(Response.Status.FORBIDDEN, "pin_rejected");
-            case UNAVAILABLE: return error(Response.Status.SERVICE_UNAVAILABLE, "rest_unavailable");
-            default: return error(Response.Status.CONFLICT, "normal_auth_not_supported");
-        }
-    }
-
     /** DELETE /v1/rest/auth: forget the REST credential. */
     private Response restForget(IHTTPSession session) {
         if (session.getMethod() != Method.DELETE) return error(Response.Status.METHOD_NOT_ALLOWED, "method_not_allowed");
@@ -236,7 +209,7 @@ public final class HttpServer extends NanoHTTPD {
         return ok();
     }
 
-    /** POST /v1/rest/psk {"psk"}: store a pre-shared key and verify it. */
+    /** POST /v1/rest/psk {"psk"}: store the IP-control pre-shared key and verify it. */
     private Response restPsk(IHTTPSession session) {
         if (session.getMethod() != Method.POST) return error(Response.Status.METHOD_NOT_ALLOWED, "method_not_allowed");
         if (rest == null || restAuth == null) return error(Response.Status.NOT_FOUND, "not_found");

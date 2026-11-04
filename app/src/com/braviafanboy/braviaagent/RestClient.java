@@ -59,14 +59,11 @@ public final class RestClient {
         }
     }
 
-    /** A JSON-RPC result plus the auth cookie the TV set, if any. */
+    /** A JSON-RPC result. */
     public static final class Reply {
         public final JSONArray result;
-        /** The full {@code Set-Cookie} header for the {@code auth} cookie, or null. */
-        public final String authCookie;
-        Reply(JSONArray result, String authCookie) {
+        Reply(JSONArray result) {
             this.result = result;
-            this.authCookie = authCookie;
         }
     }
 
@@ -112,8 +109,7 @@ public final class RestClient {
     }
 
     /**
-     * Like {@link #call} with extra request headers (credentials) and access to
-     * the auth cookie in the reply.
+     * Like {@link #call} with extra request headers (the pre-shared key).
      */
     public synchronized Reply exchange(String service, String method, String version, JSONArray params, Map<String, String> headers) throws RestException {
         JSONObject body = new JSONObject();
@@ -220,18 +216,10 @@ public final class RestClient {
             String text = is == null ? "" : new String(readAll(is), StandardCharsets.UTF_8);
             // nginx's own 403 page (plain HTTP while HTTPS is enforced) is not the API.
             if (!text.trim().startsWith("{")) throw new IOException("not JSON-RPC (HTTP " + code + ")");
-            return new Reply(parse(text), authCookie(c));
+            return new Reply(parse(text));
         } finally {
             c.disconnect();
         }
-    }
-
-    private static String authCookie(HttpURLConnection c) {
-        List<String> cookies = c.getHeaderFields().get("Set-Cookie");
-        if (cookies == null) cookies = c.getHeaderFields().get("set-cookie");
-        if (cookies == null) return null;
-        for (String s : cookies) if (s != null && s.trim().startsWith("auth=")) return s.trim();
-        return null;
     }
 
     private static JSONArray parse(String text) throws RestException, IOException {

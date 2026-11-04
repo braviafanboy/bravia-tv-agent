@@ -4,6 +4,13 @@ The release workflow copies the section matching the tag into `agent.json`,
 which Home Assistant shows as the update's release notes. Keep each section
 under a `## <version>` heading, newest first.
 
+## 0.3.1
+
+- Removed Sony's PIN-based Normal authentication for the TV's IP control. The
+  TV's PIN service refuses every set outside Japan, and the pre-shared key
+  entered in Home Assistant works everywhere, so the key is now the only
+  write credential. Nothing to do: Home Assistant already uses the key.
+
 ## 0.3.0
 
 - Renamed to **HA TV Agent** so it cannot be mistaken for a Sony app; the
