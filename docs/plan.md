@@ -495,9 +495,31 @@ Not exercised live: a full re-pairing (the pairing handler is unchanged).
     room, an animated Earth view, Earth from space, a starfield, aibo). The
     provider's three rows are the **three most recently used** themes:
     selecting Sensorial Gateway put `theme://sensorialgateway` first and
-    dropped Nature Scenery. Ids seen so far: `monochrome` (Monochrome),
-    `skyview` (Dawn to Dusk), `naturalandscape` (Nature Scenery),
-    `sensorialgateway` (Sensorial Gateway; this one is in the APK).
+    dropped Nature Scenery. Stepping through every theme (2026-11-04, UK
+    BRAVIA 8 II) gave 13 of the 14 ids; one tile (Earth from space or the
+    starfield) never reached the recent list, likely because it had not
+    finished downloading:
+
+    | Id | Title |
+    |---|---|
+    | `skyview` | Dawn to Dusk |
+    | `naturalandscape` | Nature Scenery |
+    | `monochrome` | Monochrome |
+    | `sensorialgateway` | Sensorial Gateway |
+    | `rainforest` | Rainforest Clock |
+    | `artgallery` | Art Gallery |
+    | `singulart` | Singulart ("distribution will conclude in mid-January 2027") |
+    | `flowmachines` | Colour Stream #001 |
+    | `flowmachines2` | Colour Stream #002 |
+    | `sakurachill` | Sakura Chill Beats |
+    | `spacenomad` | SPACE NOMAD #002 |
+    | `spacescenery` | Space Scenery #001 |
+    | `aibo` | My story with aibo |
+
+    Titles and descriptions are localised by the TV; the ids are not. The
+    catalogue changes over time (Singulart announces its own end), so a
+    remembered id can disappear; thumbnails come from
+    `images.erabu.sony.tv`.
   - The full catalogue is not readable: it sits in Living Decor's Sony Select
     provider (`com.sony.dtv.livingfit.provider`, not exported; adb gets
     "not exported"), and the exported provider (`com.sony.dtv.livingfit`)
