@@ -51,8 +51,9 @@ written it), `braviasync.cec` / `.autodevicesoff` / `.autotvon` /
 `timers.clock_display`, `audio.bt_video_delay`,
 `content_mode.hdmi_info_sync` (JSON per HDMI port). `audio.speakers` read
 `tv_speakers` while the soundbar was the active output, so it is a stored
-preference, not the live route — do not surface it as such. Whether any key
-is writable from a normal app is still untested. Full dump in the research
+preference, not the live route — do not surface it as such. No key is
+writable from a normal app (the write permission is signature-level; see
+Open questions). Full dump in the research
 repo.
 
 Manifest requirements learned from the probe: `uses-permission` for
@@ -162,7 +163,7 @@ block, without which the Living Decor provider query returns a null cursor
 | 1 ✅ | Display block, media sessions (notification access), HDMI inputs, audio route | now-playing quality across YouTube / Netflix / Spotify; SSE |
 | 2 ✅ | Bluetooth (remote battery), Living Decor themes, Sony settings dump → chosen keys | provider stability across launcher versions |
 | 3 ✅ (soak pending) | Bearer token, Wi-Fi block, hardening (reconnect, memory, doze on standby) | long-running stability over weeks |
-| HA ✅ (unit-tested; live VM check pending) | Integration support: probe on the TV's host, pairing (cloud deep link / local launch), SSE, sensors, now-playing, theme select — commit in bravia-tv-grpc-homeassistant main | — |
+| HA ✅ (released, verified live) | Integration support: probe on the TV's host, pairing (local launch only since 0.4.2; cloud deep link and theme select removed), SSE, sensors, now-playing, picture settings | — |
 | R1 ✅ · R2 ✅ · R3 ✅ (agent 0.3.0 + integration, local; Normal auth Japan-only) | REST picture channel: agent-relayed reads (no auth), Normal-auth PIN registration, writes, integration entities — see *REST picture channel plan* | reads on the live TV; PIN flow with the user present; CPU unchanged |
 
 ## Phase 0 findings (2026-11-02, BRAVIA 8 II, Android 14)
@@ -471,7 +472,8 @@ Verified live: Home Assistant reconnected with the pinned certificate within
 Home Assistant 58–107 ms; unauthorised requests 401, closed pairing 403, a
 70 KB body 413, a chunked upload 501, a 9 KB header 431, HTTP/2 505, garbage
 and random bytes 400, plain HTTP refused; the server kept serving throughout.
-Not exercised live: a full re-pairing (the pairing handler is unchanged).
+A full re-pairing was exercised later the same day (clear by hold LEFT, then
+local pairing): Home Assistant paired again in 12–13 s.
 
 ## Open questions
 
