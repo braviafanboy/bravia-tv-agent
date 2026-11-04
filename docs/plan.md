@@ -405,6 +405,27 @@ Encoder benchmark on the TV (median of 3, background priority): JPEG q90 4–7 m
    - Measured cost (webapi, 2026-11-03, 20 reads each): full read 110 ms CPU / 944 ms wall; one target 5–6.5 ms CPU / ~45 ms wall; target lists in one call are rejected (`Illegal Argument`). So 60 s full ≈ 0.18% of a core; 10 s with the 13 default-enabled targets ≈ 0.8% (≈25× the agent's own footprint — measure before recommending short intervals); 10 s full ≈ 1.1% (never done).
    - Agent side in R2, integration options and gRPC trigger in R3.
 
+## Transport direction (decided 2026-11-04)
+
+The agent's listening HTTPS server is to be replaced by a connection the agent
+opens to Home Assistant's own WebSocket API, extended with commands the
+integration registers (agent state in, commands out). Home Assistant
+authenticates the agent with a token minted at pairing for a dedicated
+non-admin user, so there is no custom endpoint and no port on the TV.
+
+Security posture: the same as Home Assistant's. On a plain-HTTP install the
+agent's token crosses the LAN in clear, exactly as the frontend's and the
+companion app's do; HTTPS on Home Assistant protects it. This replaces today's
+pinned TLS and is accepted deliberately. Considered and set aside: webhooks
+with long polling (spike and measured findings on branch spike/webhooks), a reverse
+tunnel carrying the existing pinned-TLS contract (keeps end-to-end
+encryption, needs its own unauthenticated endpoint and TLS-in-WebSocket code),
+and the companion app protocol (sensors only; would split the TV into two
+devices).
+
+Migration: the integration first speaks both transports; agents then switch
+and keep the server for older integrations; the server is removed later.
+
 ## Open questions
 
 - Does the HTTP server keep its port after a Wi-Fi drop or IP change, and does
