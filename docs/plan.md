@@ -20,9 +20,8 @@ in "Design" is a proposal.
    succeeded, and looks for the agent only at that TV's address
    (decided 2026-11-04).
 
-Non-goals: controlling the TV (the integration already has two write paths),
-anything needing root or Sony signing, Google Play distribution, replacing
-the integration's own discovery or pairing.
+Non-goals: anything needing root or Sony signing, Google Play distribution,
+replacing the integration's own discovery or pairing.
 
 ## Sources, permissions, and what the user must do
 
