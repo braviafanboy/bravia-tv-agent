@@ -431,15 +431,23 @@ the first token needs another channel):
   advert and POSTs to a well-known pairing webhook, which answers with the
   token only during the window and only from the TV's address (proven in the
   spike: 1.2 s, no cloud).
-- Sony cloud deep link, the fallback: carries the token and Home Assistant's
-  address, so it also works where the advert is not visible.
+- Manual address, the fallback where the advert is not visible: the user
+  enters Home Assistant's address once on the agent's status screen; the
+  integration's repair names the address to enter. Pairing then proceeds as
+  above.
+- Not the Sony cloud deep link: nothing about the user's Home Assistant (its
+  address or a token) is ever sent through Sony's service (decided
+  2026-11-04). Local pairing also replaces today's cloud delivery of the
+  agent token, so Sony drops out of pairing entirely.
 - Existing pinned-TLS link, for upgrades: already-paired agents receive their
   token over today's connection while the server still exists.
 
 New requirement: the TV must reach Home Assistant (today only the reverse is
 needed). TVs on an IoT network segment that may not reach Home Assistant, or
 where mDNS does not cross, fail local pairing and the connection itself. Needs
-a docs note and a repair when the agent is found but never connects.
+a docs note and a repair when the agent is found but never connects; on
+such networks the manual address does not help unless the TV may reach Home
+Assistant's port.
 
 Migration: the integration first speaks both transports; agents then switch
 and keep the server for older integrations; the server is removed later.
