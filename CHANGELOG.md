@@ -4,7 +4,7 @@ The release workflow copies the section matching the tag into `agent.json`,
 which Home Assistant shows as the update's release notes. Keep each section
 under a `## <version>` heading, newest first.
 
-## 0.3.1
+## 0.4.0
 
 - New built-in web server, replacing the unmaintained NanoHTTPD library. It
   serves exactly the requests Home Assistant makes and refuses anything else,

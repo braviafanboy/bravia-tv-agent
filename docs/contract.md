@@ -198,7 +198,7 @@ Field notes:
   pre-shared key). `write_authorized` is true while that key last worked
   (verification or a write). `poll_s`, `event_refresh` and `watch` are the
   refresh settings set with `POST /v1/picture/config`. (Agent 0.3.0 also had a
-  Normal-auth cookie, `auth: cookie` and `cookie_expires`; removed in 0.3.1, as
+  Normal-auth cookie, `auth: cookie` and `cookie_expires`; removed in 0.4.0, as
   the TV's PIN service only works on Japanese sets.)
 - `picture.targets` holds every picture-quality target the TV reports for the
   current picture mode, unchanged: `value` is the TV's string, `available` its

@@ -74,7 +74,7 @@ block, without which the Living Decor provider query returns a null cursor
   context promotes it. Android TV shows a persistent notification for it;
   that is acceptable and expected.
 - An embedded HTTP server on port **8585** bound to all interfaces, JSON
-  only (HTTPS since 0.2.0). Originally NanoHTTPD 2.3.1; replaced in 0.3.1 by
+  only (HTTPS since 0.2.0). Originally NanoHTTPD 2.3.1; replaced in 0.4.0 by
   the agent's own small server (see "HTTP server rewrite" below). SSE is a
   chunked response fed from a per-client queue, so a dead client never blocks
   or crashes anything else.
@@ -370,7 +370,7 @@ Design rationale and every verified fact behind it: `bravia-research/docs/rest-i
 - HDR trigger, live with the user: the first version missed HDR10 because the TV reports "no video signal" between contents and the trigger ignored changes from an empty value (gamma arrived 47.5 s later via the poll). The TV uses its SDR picture values whenever nothing HDR plays (HDR10 → no signal switched gamma back to −3), so no signal now counts as SDR and the trigger fires on a change of dynamic-range class (same pattern as the audio sensor treating an empty audio signal as PCM). A second bug: the signal value is a JSON-encoded string, read raw, so the trigger never fired. Fixed and verified live with the user (2026-11-03): SDR → HDR10: signal 23:54:53.25, agent `refresh requested` 53.87, read done 55.22 (5 settings changed), HA updated 56.29 (3.0 s); HDR10 → launcher: 2.6 s. The launcher reports no signal and the TV puts its SDR values on it within 0.5 s. The TV applies HDR values ~2 s after reporting HDR10, so HDR-triggered re-reads wait 3 s (others 1 s). Confirmed live with the 3 s wait: HDR10 seen 23:58:20.55, refresh requested 22.67, read done 23.93 (5 settings changed), HA updated 24.86 (~4.3 s, correct HDR values); the TV's lag varies (immediate this time, ~2 s before), the wait covers both. Agent logs `picture: refresh requested` and `picture: N settings changed` for this kind of check.
 - `rest_unavailable`, live (2026-11-04): the switch that turns the REST API off is **Remote device settings → Control remotely** (with it off the API does not answer at all; gRPC is unaffected). The *IP control* screen only holds Authentication, Pre-Shared Key, Communication mode and *Simple IP control* (the separate port-20060 protocol). Entities went unavailable within ~1 min; the repair appeared at 5.5 min instead of 3 because the grace was only re-checked on the agent's next state document; integration now schedules its own re-check.
 
-**Agent 0.3.1 (2026-11-04):** Normal (PIN) authentication removed at the user's request: Japan-only on the TV, never reachable from the integration, untested. The pre-shared key is the only write credential; the R2 notes above describe the removed PIN flow for the record.
+**Agent 0.4.0 (2026-11-04):** Normal (PIN) authentication removed at the user's request: Japan-only on the TV, never reachable from the integration, untested. The pre-shared key is the only write credential; the R2 notes above describe the removed PIN flow for the record.
 
 **Artwork survey (2026-11-04, live, temporary probe since removed):** what each app puts in its media session.
 
@@ -408,7 +408,7 @@ Encoder benchmark on the TV (median of 3, background priority): JPEG q90 4–7 m
 
 ## Transport direction (2026-11-04)
 
-Decided: **keep the listening HTTPS server and rewrite it** (done in 0.3.1,
+Decided: **keep the listening HTTPS server and rewrite it** (done in 0.4.0,
 below). It fixes the actual problem, an unmaintained dependency, with no
 change to the contract, pairing or the integration, keeps pinned TLS end to
 end on every install, and keeps working where the TV may not reach Home
@@ -434,7 +434,7 @@ Considered and kept on file:
   to end encryption but needs its own unauthenticated endpoint and
   TLS-in-WebSocket code.
 
-## HTTP server rewrite (0.3.1, measured 2026-11-04)
+## HTTP server rewrite (0.4.0, measured 2026-11-04)
 
 NanoHTTPD (2.3.1, 2016, unmaintained) is replaced by `http/` in the agent:
 a strict HTTP/1.1 subset on Android's TLS server sockets. Blocking sockets,
