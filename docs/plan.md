@@ -418,6 +418,8 @@ Encoder benchmark on the TV (median of 3, background priority): JPEG q90 4–7 m
 
 ## Out of scope, recorded so it is not re-asked
 
+- **Now-playing enrichment from online databases** (TMDB, IMDb, Rotten Tomatoes …), considered 2026-11-04: not worth building unless a way to identify what is playing in most apps exists, and none does. Most apps withhold titles from their media session (see the artwork survey); no video app posts notifications; Watch Next / Google TV continue-watching need privileged permissions; Sony's cloud playback state is a bare enum; screenshots of protected video are black; other apps' audio cannot be captured; accessibility screen-reading is invasive and fragile; the streaming services have no account APIs. If it ever returns: TMDB (free key, attribution) looked up in Home Assistant, matched on title + duration, off by default. Related: Prime Video's media id is its GTI (`amzn1.dv.gti.…`), which resolves on primevideo.com/detail/<gti> and in `app.primevideo.com` deep links; passing media ids through (Prime GTI, Spotify `spotify:track:…`) for automations stays a small optional idea.
+
 - Search results readback and UI actions (DCS trait, signature-gated).
 - Forcing a Sony cloud state upload (no exported trigger).
 - Remote finder, parental-control timers, notification trait (DCS).
