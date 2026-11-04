@@ -85,9 +85,11 @@ public final class AgentService extends Service implements HttpServer.InfoProvid
         pairing = new Pairing(this);
         Updater staged = new Updater(this);
         if (Updater.isApplied(staged.pendingVersion(), VERSION)) staged.clearPending();  // that update (or a newer one) is running
-        pairing.setListener(() -> new android.os.Handler(getMainLooper()).post(() -> {
+        pairing.setListener(tokenChanged -> new android.os.Handler(getMainLooper()).post(() -> {
             registerMdns();
-            if (server != null) server.closeStreams();
+            // A changed token must re-authenticate open streams; the window
+            // opening or closing changes nothing for a connected client.
+            if (tokenChanged && server != null) server.closeStreams();
         }));
         identity.setCallback(id -> new android.os.Handler(getMainLooper()).post(this::registerMdns));
         themes = new ThemesReader(this);
@@ -156,6 +158,7 @@ public final class AgentService extends Service implements HttpServer.InfoProvid
      *   picture refresh | picture get TARGET | picture set TARGET VALUE
      *   picture config POLL_S EVENT_REFRESH(true|false) [T1,T2,...]
      *   power_saving off|low|high
+     *   pairing window | pairing forget   (development: open the 60 s window / clear the token)
      * </pre>
      */
     @Override
@@ -209,6 +212,12 @@ public final class AgentService extends Service implements HttpServer.InfoProvid
                     }
                     default: break;
                 }
+            } else if ("pairing".equals(cmd) && "window".equals(sub)) {
+                pairing.openWindow();
+                pw.println("window open for " + Pairing.WINDOW_MS / 1000 + " s");
+            } else if ("pairing".equals(cmd) && "forget".equals(sub)) {
+                pairing.clear();
+                pw.println("pairing cleared");
             } else if ("power_saving".equals(cmd) && !sub.isEmpty()) {
                 try { picture.writePowerSaving(sub); pw.println("ok"); }
                 catch (PictureReader.WriteException e) { pw.println("refused: " + e.code); }

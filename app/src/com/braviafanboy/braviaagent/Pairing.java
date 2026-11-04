@@ -12,9 +12,10 @@ import java.security.SecureRandom;
  * the TV's own REST port). Once a token exists every request except /v1/info
  * and POST /v1/pair must carry {@code Authorization: Bearer <token>}.
  *
- * A token is obtained either through the pairing window (opened when the TV's
- * own control service launched the status screen, or manually from it) with
- * {@code POST /v1/pair}, or delivered directly by the cloud deep link
+ * A token is obtained either through the pairing window (opened only when
+ * the TV's own control service launched the status screen, i.e. the
+ * integration's local launch) with {@code POST /v1/pair}, or delivered
+ * directly by the cloud deep link
  * {@code braviaagent://pair?token=...}. Pairing again replaces the token.
  */
 public final class Pairing {
@@ -26,7 +27,8 @@ public final class Pairing {
     public static final long WINDOW_MS = 60000;
 
     public interface Listener {
-        void onPairingChanged();
+        /** {@code tokenChanged}: paired, re-paired or cleared (not just the window opening or closing). */
+        void onPairingChanged(boolean tokenChanged);
     }
 
     private final SharedPreferences prefs;
@@ -67,12 +69,12 @@ public final class Pairing {
     public void openWindow() {
         windowUntil = SystemClock.elapsedRealtime() + WINDOW_MS;
         Log.i(TAG, "pairing window open for " + (WINDOW_MS / 1000) + " s");
-        notifyChanged();
+        notifyChanged(false);
     }
 
     public void closeWindow() {
         windowUntil = 0;
-        notifyChanged();
+        notifyChanged(false);
     }
 
     /** POST /v1/pair during the window: mint and store a new token. */
@@ -98,7 +100,7 @@ public final class Pairing {
         token = null;
         prefs.edit().clear().apply();
         Log.i(TAG, "pairing cleared");
-        notifyChanged();
+        notifyChanged(true);
     }
 
     /**
@@ -120,12 +122,12 @@ public final class Pairing {
         prefs.edit().putString(KEY_TOKEN, newToken).putString(KEY_NAME, name == null ? "" : name)
             .putLong(KEY_AT, System.currentTimeMillis()).apply();
         Log.i(TAG, "paired with " + name);
-        notifyChanged();
+        notifyChanged(true);
     }
 
-    private void notifyChanged() {
+    private void notifyChanged(boolean tokenChanged) {
         Listener l = listener;
-        if (l != null) l.onPairingChanged();
+        if (l != null) l.onPairingChanged(tokenChanged);
     }
 
     private static boolean constantTimeEquals(String a, String b) {

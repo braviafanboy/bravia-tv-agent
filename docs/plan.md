@@ -210,7 +210,8 @@ block, without which the Living Decor provider query returns a null cursor
 
 - Verified live: unpaired → open; `POST /v1/pair` outside the window → 403;
   RIGHT on the status screen opens the window (`info.pairing.window_open`,
-  59 s); pairing returns a 64-hex token; afterwards no header / wrong token →
+  59 s; RIGHT removed in 0.4.1: Home Assistant opens the window itself, and a
+  manual one only let another device take over a working pairing); pairing returns a 64-hex token; afterwards no header / wrong token →
   401, right token → 200 on `/v1/state` and `/v1/events`, `/v1/info` stays
   public, a second pair → 403; mDNS TXT gains `p=1`.
 - Cloud delivery verified: `application.deep_link` with

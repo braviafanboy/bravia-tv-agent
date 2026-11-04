@@ -68,8 +68,12 @@ every request except `GET /v1/info` and `POST /v1/pair` must carry
   window is open, else 403 `{"error":"pairing_closed"}`. The window lasts 60 s
   and opens when the status screen is launched by one of Sony's control
   services (the integration's local gRPC app launch; referrer
-  `android-app://com.sony.dtv.devicecontrolservice`) or when the user presses
-  RIGHT on it. Pairing closes the window and replaces any earlier token.
+  `android-app://com.sony.dtv.devicecontrolservice`). There is no manual way
+  to open it on the TV (RIGHT on the status screen did until 0.4.1); for
+  development, `dumpsys activity service …/.AgentService pairing window`.
+  Pairing closes the window and replaces any earlier token. Opening or
+  closing the window leaves open event streams alone; a changed or cleared
+  token ends them.
 - Cloud delivery: launching the deep link `braviaagent://pair?token=<t>&name=<n>`
   (cloud `application.deep_link`) stores `<t>` directly, no window. Sony's
   DeviceControlService delivers it to the package's **main activity** with

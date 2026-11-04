@@ -191,12 +191,12 @@ public final class StatusActivity extends Activity {
     }
 
     /**
-     * OK: grant whatever is missing. RIGHT: open the 60 s pairing window.
-     * Hold LEFT: forget the pairing. BACK closes. (Listed on screen.)
+     * OK: grant whatever is missing. Hold LEFT: forget the pairing (Home
+     * Assistant pairs again on its own). BACK closes. (Listed on screen.)
+     * There is no manual pairing window: the integration opens it itself.
      */
     @Override
     public boolean onKeyDown(int keyCode, KeyEvent event) {
-        AgentService svc = AgentService.instance();
         if (keyCode == KeyEvent.KEYCODE_DPAD_CENTER || keyCode == KeyEvent.KEYCODE_ENTER) {
             if (allGranted()) {
                 toast("Nothing to set up");
@@ -205,11 +205,6 @@ public final class StatusActivity extends Activity {
                 asked.clear();
                 advance();
             }
-            return true;
-        }
-        if (keyCode == KeyEvent.KEYCODE_DPAD_RIGHT && svc != null) {
-            svc.pairing().openWindow();
-            render();
             return true;
         }
         if (keyCode == KeyEvent.KEYCODE_DPAD_LEFT) {
@@ -293,14 +288,14 @@ public final class StatusActivity extends Activity {
             row("Status", "Starting…", DIM_COLOR);
         } else {
             Pairing pairing = svc.pairing();
-            if (pairing.windowOpen()) {
-                row("Home Assistant", "Pairing… " + pairing.windowSecondsLeft() + " s left", TODO_COLOR);
-            } else if (!pairing.isPaired()) {
-                row("Home Assistant", "Not paired", BAD_COLOR);
+            String open = pairing.windowOpen() ? " · pairing open, " + pairing.windowSecondsLeft() + " s left" : "";
+            if (!pairing.isPaired()) {
+                row("Home Assistant", pairing.windowOpen() ? "Pairing… " + pairing.windowSecondsLeft() + " s left" : "Not paired",
+                    pairing.windowOpen() ? TODO_COLOR : BAD_COLOR);
             } else if (svc.store().hasListeners()) {
-                row("Home Assistant", "Connected", OK_COLOR);
+                row("Home Assistant", "Connected" + open, OK_COLOR);
             } else {
-                row("Home Assistant", "Paired, waiting for it to connect", TODO_COLOR);
+                row("Home Assistant", "Paired, waiting for it to connect" + open, TODO_COLOR);
             }
         }
         grantRow("Now playing", notificationAccessGranted(), "Needs Notification access");
@@ -326,7 +321,6 @@ public final class StatusActivity extends Activity {
         versionLine.setText("Version " + AgentService.VERSION + (ip == null ? "" : "  ·  " + ip));
         keys.removeAllViews();
         if (!allGranted()) keyRow("OK", "Grant missing permissions");
-        keyRow("RIGHT", "Allow pairing for 60 s");
         keyRow("Hold LEFT", "Forget the pairing");
         keyRow("BACK", "Close");
     }

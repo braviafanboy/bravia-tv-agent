@@ -9,8 +9,14 @@ under a `## <version>` heading, newest first.
 - Holding LEFT on the agent's screen clears its pairing again, as documented
   (it never worked: the key handler waited for a long-press flag Android only
   sets on repeats). Home Assistant pairs again on its own within seconds.
+- RIGHT on the agent's screen no longer opens a pairing window. Home
+  Assistant never needed it (it pairs on its own), and while the window was
+  open any device on the network could take over the pairing. The screen
+  now shows "Connected · pairing open, … s left" instead of hiding the
+  connection while Home Assistant's own pairing window is open, and opening
+  or closing that window no longer drops Home Assistant's connection.
 - Clearer button help on the agent's screen: one line per remote button
-  (RIGHT, Hold LEFT, BACK, and OK when a permission is missing) with what it
+  (Hold LEFT, BACK, and OK when a permission is missing) with what it
   does, below the status rows. The TV's address moved next to the version.
 
 ## 0.4.0
