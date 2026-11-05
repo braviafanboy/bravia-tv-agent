@@ -4,11 +4,15 @@ The release workflow copies the section matching the tag into `agent.json`,
 which Home Assistant shows as the update's release notes. Keep each section
 under a `## <version>` heading, newest first.
 
-## Unreleased (feature/find-remote)
+## 0.5.0
 
 - Find remote: Home Assistant can make the TV's remote beep, as the TV's own
   Find remote does (over Bluetooth, while the TV is on). Pressing any button
-  on the remote silences it.
+  on the remote silences it. It needs the *Bluetooth* permission, the same
+  one as the remote's battery level.
+- Updates are paired with the integration's release: each integration
+  version offers the agent version it was released with, and never installs
+  it on its own.
 
 ## 0.4.2
 
