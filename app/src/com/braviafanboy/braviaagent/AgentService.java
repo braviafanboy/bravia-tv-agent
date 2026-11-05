@@ -46,6 +46,7 @@ public final class AgentService extends Service implements HttpServer.InfoProvid
     private HttpServer server;
     private DeviceIdentity identity;
     private Pairing pairing;
+    private RemoteFinder remoteFinder;
     private Tls tls;
     private EnvironmentReader environment;
     private DisplayReader display;
@@ -101,6 +102,7 @@ public final class AgentService extends Service implements HttpServer.InfoProvid
         rest = new RestClient();
         restAuth = new RestAuth(this);
         picture = new PictureReader(this, store, rest, restAuth);
+        remoteFinder = new RemoteFinder(this, store);
         display.setPanelListener(this::onPanelChanged);
         display.start();
         inputs.start();
@@ -108,6 +110,7 @@ public final class AgentService extends Service implements HttpServer.InfoProvid
         if (display.isPanelOn()) resumeReaders(); else Log.i(TAG, "panel off at start: readers paused");
         server = new HttpServer(this, PORT, store, this, media, pairing, picture);
         server.setRest(rest, restAuth);
+        server.setRemoteFinder(remoteFinder);
         try {
             tls = Tls.load(this);
             server.start(tls.serverSocketFactory());
@@ -156,6 +159,7 @@ public final class AgentService extends Service implements HttpServer.InfoProvid
      *   picture config POLL_S EVENT_REFRESH(true|false) [T1,T2,...]
      *   power_saving off|low|high
      *   pairing window | pairing forget   (development: open the 60 s window / clear the token)
+     *   remote find                       (beep the remote)
      * </pre>
      */
     @Override
@@ -215,6 +219,8 @@ public final class AgentService extends Service implements HttpServer.InfoProvid
                     }
                     default: break;
                 }
+            } else if ("remote".equals(cmd) && "find".equals(sub)) {
+                pw.println("remote finder: " + remoteFinder.find());
             } else if ("pairing".equals(cmd) && "window".equals(sub)) {
                 pairing.openWindow();
                 pw.println("window open for " + Pairing.WINDOW_MS / 1000 + " s");
@@ -337,7 +343,8 @@ public final class AgentService extends Service implements HttpServer.InfoProvid
             o.put("update", upd);
             o.put("endpoints", new JSONArray(Arrays.asList("/v1/state", "/v1/events", MediaReader.ARTWORK_PATH,
                 HttpServer.PICTURE_REFRESH_PATH, HttpServer.PICTURE_PATH, HttpServer.PICTURE_CONFIG_PATH,
-                HttpServer.POWER_SAVING_PATH, HttpServer.REST_AUTH_PATH, HttpServer.REST_PSK_PATH)));
+                HttpServer.POWER_SAVING_PATH, HttpServer.REST_AUTH_PATH, HttpServer.REST_PSK_PATH,
+                HttpServer.REMOTE_FIND_PATH)));
         } catch (Exception ignored) {
         }
         return o;
