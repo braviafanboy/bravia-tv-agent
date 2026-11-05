@@ -35,9 +35,10 @@ import java.util.concurrent.TimeUnit;
  * <p>Steps: the bonded device named {@value #REMOTE_NAME}, connect over LE,
  * Sony's remote finder service; notifications on its IN characteristic, then
  * {@code 05 01 78 FF 01 00} (0x78 = 120, the beep's length in seconds as far
- * as Sony's 120 s wait suggests) to its OUT characteristic, sent three times a
- * second apart as Sony does. A notification on IN means the remote reported
- * back, most likely a button pressed to silence it.
+ * as Sony's 120 s wait suggests) to its OUT characteristic, resent up to
+ * twice a second apart only until the remote confirms it started (it refuses
+ * the command while already beeping). The remote reports on IN: started, found (a
+ * button silenced it) or timed out.
  *
  * <p>Publishes {@code remote_finder}: {@code {"state", "reason", "at"}} with
  * state idle, connecting, ringing, found, unsupported, no_remote, no_permission,
@@ -64,6 +65,7 @@ public final class RemoteFinder {
     // Touched on the handler thread only.
     private BluetoothGatt gatt;
     private int sent;
+    private boolean started;
     private CountDownLatch firstWrite;
     private String state = "idle";
     private String reason;
@@ -114,6 +116,7 @@ public final class RemoteFinder {
         close();
         firstWrite = latch;
         sent = 0;
+        started = false;
         reason = null;
         if (context.checkSelfPermission("android.permission.BLUETOOTH_CONNECT") != PackageManager.PERMISSION_GRANTED) {
             finish("no_permission");
@@ -213,7 +216,9 @@ public final class RemoteFinder {
                 release();
                 handler.postDelayed(stopListening, LISTEN_MS);
             }
-            if (sent < SENDS) handler.postDelayed(() -> send(g), SEND_INTERVAL_MS);
+            // Resend only if the remote hasn't confirmed it started: while it is
+            // already beeping it refuses the command (seen live: status 254).
+            if (sent < SENDS) handler.postDelayed(() -> { if (!started && gatt == g) send(g); }, SEND_INTERVAL_MS);
         }
 
         @Override public void onCharacteristicChanged(BluetoothGatt g, BluetoothGattCharacteristic c, byte[] value) {
@@ -226,15 +231,26 @@ public final class RemoteFinder {
         }
     };
 
+    /**
+     * The remote's status, byte 2 as Sony reads it (UINT8 at offset 2):
+     * 0 = beeping started, 1 = success (found: a button silenced it),
+     * 2 = timed out. Seen live: {@code 02 01 00} right after the write.
+     */
     private void onNotify(BluetoothGattCharacteristic c, byte[] value) {
         if (!IN.equals(c.getUuid())) return;
         StringBuilder hex = new StringBuilder();
         if (value != null) for (byte b : value) hex.append(String.format(Locale.US, "%02x", b));
-        Log.i(TAG, "remote finder: remote reported " + hex);
+        int status = value != null && value.length > 2 ? value[2] & 0xff : -1;
+        Log.i(TAG, "remote finder: remote reported " + hex + " (status " + status + ")");
         reason = hex.toString();
+        if (status == 0) {
+            started = true;
+            setState("ringing");
+            return;
+        }
         handler.removeCallbacks(stopListening);
         close();
-        setState("found");
+        setState(status == 1 ? "found" : "idle");
     }
 
     private void send(BluetoothGatt g) {

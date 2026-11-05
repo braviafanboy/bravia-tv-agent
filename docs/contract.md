@@ -267,6 +267,18 @@ verifies it with a read that requires it. Answers
 
 Bearer. Forgets the stored credential.
 
+## `POST /v1/remote/find`
+
+Makes the bundled remote beep, as the TV's own Find remote does: a Bluetooth
+LE write to Sony's remote finder service on the paired "SONY TV VRC 001"
+(details in RemoteFinder.java). Needs BLUETOOTH_CONNECT and the TV on. Waits
+until the beep command is written or fails (at most ~15 s) and answers
+`{"state": ...}`: `ringing`, `found`, `unsupported` (no finder service on the
+remote), `no_remote`, `no_permission` or `failed`. The state block
+`remote_finder` (`{"state", "reason", "at"}`) follows the beep: the remote
+reports `02 01 00` when it starts and `02 01 01` when a button silences it
+(found); `02` in the last byte would be a timeout.
+
 ## `GET /v1/events`
 
 `text/event-stream`. Events:
