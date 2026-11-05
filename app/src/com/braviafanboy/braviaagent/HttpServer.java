@@ -30,6 +30,7 @@ public final class HttpServer implements Server.Handler {
     public static final String POWER_SAVING_PATH = "/v1/power_saving";
     public static final String REST_AUTH_PATH = "/v1/rest/auth";
     public static final String REST_PSK_PATH = "/v1/rest/psk";
+    public static final String REMOTE_FIND_PATH = "/v1/remote/find";
     private static final long HEARTBEAT_MS = 30000;
     private static final int QUEUE_DEPTH = 16;
     /** Home Assistant holds the event stream plus a few short requests; this leaves ample headroom. */
@@ -42,6 +43,7 @@ public final class HttpServer implements Server.Handler {
     private final PictureReader picture;
     private RestClient rest;
     private RestAuth restAuth;
+    private RemoteFinder remoteFinder;
     private final Updater updater;
     private final int port;
     private Server server;
@@ -62,6 +64,10 @@ public final class HttpServer implements Server.Handler {
     }
 
     /** The REST client and credential store used by the registration endpoints. */
+    public void setRemoteFinder(RemoteFinder finder) {
+        this.remoteFinder = finder;
+    }
+
     public void setRest(RestClient rest, RestAuth auth) {
         this.rest = rest;
         this.restAuth = auth;
@@ -95,6 +101,16 @@ public final class HttpServer implements Server.Handler {
         if (POWER_SAVING_PATH.equals(path)) return powerSaving(session);
         if (REST_AUTH_PATH.equals(path)) return restForget(session);
         if (REST_PSK_PATH.equals(path)) return restPsk(session);
+        if (REMOTE_FIND_PATH.equals(path)) {
+            // POST /v1/remote/find: beep the remote; waits until the first beep
+            // command is written or fails (<= ~15 s). {"state": ringing | found |
+            // unsupported | no_remote | no_permission | failed}.
+            if (!"POST".equals(session.method)) return error(405, "method_not_allowed");
+            if (remoteFinder == null) return error(404, "not_found");
+            JSONObject o = new JSONObject();
+            try { o.put("state", remoteFinder.find()); } catch (Exception ignored) { }
+            return json(o);
+        }
         if (!"GET".equals(session.method)) return error(405, "method_not_allowed");
         switch (path) {
             case "/v1/state": return json(store.snapshot());

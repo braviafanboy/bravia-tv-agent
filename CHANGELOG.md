@@ -4,6 +4,12 @@ The release workflow copies the section matching the tag into `agent.json`,
 which Home Assistant shows as the update's release notes. Keep each section
 under a `## <version>` heading, newest first.
 
+## Unreleased (feature/find-remote)
+
+- Find remote: Home Assistant can make the TV's remote beep, as the TV's own
+  Find remote does (over Bluetooth, while the TV is on). Pressing any button
+  on the remote silences it.
+
 ## 0.4.2
 
 - Every picture setting can now be changed from Home Assistant. Until now only
