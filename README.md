@@ -52,10 +52,13 @@ You can turn network debugging off afterwards.
 
 ## Updates
 
-New versions appear as an update entity in Home Assistant. Installing one
-downloads the release on the TV and asks for one confirmation on screen. The
-first time, Android also asks for permission to install apps. Updates keep
-the pairing.
+New versions appear as an update entity in Home Assistant, but nothing is
+installed on its own. Each integration release offers the agent version it was
+built and tested with, so the agent never gets ahead of the integration.
+Installing downloads that release on the TV and asks for one confirmation on
+screen. The first time, Android also asks for permission to install apps.
+Updates keep the pairing. Checking for agent updates can be turned off in the
+integration's options.
 
 ## Privacy and security
 
