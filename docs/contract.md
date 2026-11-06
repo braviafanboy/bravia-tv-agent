@@ -279,6 +279,18 @@ remote), `no_remote`, `no_permission` or `failed`. The state block
 reports `02 01 00` when it starts and `02 01 01` when a button silences it
 (found); `02` in the last byte would be a timeout.
 
+## `POST /v1/notify`
+
+Shows a message on the TV screen as an overlay banner, over whatever is playing.
+Body `{"message", "title"?, "icon"?, "duration_s"?}`. `icon` is a friendly key
+(`message`, `alert`, `info`, `home`, `cast`, `speaker`, `remote`, or `none`)
+mapped to a native Sony SystemUI drawable, with a framework fallback. Needs the
+SYSTEM_ALERT_WINDOW ("Display over other apps") permission; answers
+`{"state": "shown" | "notification" | "failed", "overlay": <bool>}`. `shown` =
+the overlay banner; `notification` = overlay not permitted, posted to the panel
+instead. The banner is suppressed on secure system screens (e.g. Settings),
+which hide non-system overlays.
+
 ## `GET /v1/events`
 
 `text/event-stream`. Events:

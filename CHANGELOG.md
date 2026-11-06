@@ -4,6 +4,14 @@ The release workflow copies the section matching the tag into `agent.json`,
 which Home Assistant shows as the update's release notes. Keep each section
 under a `## <version>` heading, newest first.
 
+## Unreleased
+
+- On-screen notifications: Home Assistant can show a message on the TV screen,
+  as a banner styled like the TV's own notifications (over whatever is playing,
+  while the TV is on). Optional icon (native Sony icons) and duration. Needs the
+  *Display over other apps* permission. Not shown over the Settings menu and
+  other secure system screens, which suppress non-system overlays.
+
 ## 0.5.0
 
 - Find remote: Home Assistant can make the TV's remote beep, as the TV's own

@@ -31,6 +31,7 @@ public final class HttpServer implements Server.Handler {
     public static final String REST_AUTH_PATH = "/v1/rest/auth";
     public static final String REST_PSK_PATH = "/v1/rest/psk";
     public static final String REMOTE_FIND_PATH = "/v1/remote/find";
+    public static final String NOTIFY_PATH = "/v1/notify";
     private static final long HEARTBEAT_MS = 30000;
     private static final int QUEUE_DEPTH = 16;
     /** Home Assistant holds the event stream plus a few short requests; this leaves ample headroom. */
@@ -64,6 +65,12 @@ public final class HttpServer implements Server.Handler {
     }
 
     /** The REST client and credential store used by the registration endpoints. */
+    private Notifier notifier;
+
+    public void setNotifier(Notifier n) {
+        this.notifier = n;
+    }
+
     public void setRemoteFinder(RemoteFinder finder) {
         this.remoteFinder = finder;
     }
@@ -109,6 +116,25 @@ public final class HttpServer implements Server.Handler {
             if (remoteFinder == null) return error(404, "not_found");
             JSONObject o = new JSONObject();
             try { o.put("state", remoteFinder.find()); } catch (Exception ignored) { }
+            return json(o);
+        }
+        if (NOTIFY_PATH.equals(path)) {
+            // POST /v1/notify {"title", "message", "duration_s"}: show a message
+            // on the TV screen. {"state": shown | notification | failed}.
+            if (!"POST".equals(session.method)) return error(405, "method_not_allowed");
+            if (notifier == null) return error(404, "not_found");
+            JSONObject body = body(session);
+            if (body == null) return error(400, "message_required");
+            String msg = body.optString("message", "");
+            String title = body.optString("title", "");
+            if (msg.isEmpty() && title.isEmpty()) return error(400, "message_required");
+            int dur = body.optInt("duration_s", 0);
+            String icon = body.optString("icon", "");
+            JSONObject o = new JSONObject();
+            try {
+                o.put("state", notifier.show(title, msg, dur, icon));
+                o.put("overlay", notifier.canOverlay());
+            } catch (Exception ignored) { }
             return json(o);
         }
         if (!"GET".equals(session.method)) return error(405, "method_not_allowed");

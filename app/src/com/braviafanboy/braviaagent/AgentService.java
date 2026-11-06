@@ -47,6 +47,7 @@ public final class AgentService extends Service implements HttpServer.InfoProvid
     private DeviceIdentity identity;
     private Pairing pairing;
     private RemoteFinder remoteFinder;
+    private Notifier notifier;
     private Tls tls;
     private EnvironmentReader environment;
     private DisplayReader display;
@@ -103,6 +104,7 @@ public final class AgentService extends Service implements HttpServer.InfoProvid
         restAuth = new RestAuth(this);
         picture = new PictureReader(this, store, rest, restAuth);
         remoteFinder = new RemoteFinder(this, store);
+        notifier = new Notifier(this);
         display.setPanelListener(this::onPanelChanged);
         display.start();
         inputs.start();
@@ -111,6 +113,7 @@ public final class AgentService extends Service implements HttpServer.InfoProvid
         server = new HttpServer(this, PORT, store, this, media, pairing, picture);
         server.setRest(rest, restAuth);
         server.setRemoteFinder(remoteFinder);
+        server.setNotifier(notifier);
         try {
             tls = Tls.load(this);
             server.start(tls.serverSocketFactory());
@@ -221,6 +224,9 @@ public final class AgentService extends Service implements HttpServer.InfoProvid
                 }
             } else if ("remote".equals(cmd) && "find".equals(sub)) {
                 pw.println("remote finder: " + remoteFinder.find());
+            } else if ("notify".equals(cmd)) {
+                String msg = args.length > 1 ? String.join(" ", Arrays.copyOfRange(args, 1, args.length)) : "Test message";
+                pw.println("notify: " + notifier.show("Home Assistant", msg, 0, "message") + " (overlay=" + notifier.canOverlay() + ")");
             } else if ("pairing".equals(cmd) && "window".equals(sub)) {
                 pairing.openWindow();
                 pw.println("window open for " + Pairing.WINDOW_MS / 1000 + " s");
@@ -330,6 +336,7 @@ public final class AgentService extends Service implements HttpServer.InfoProvid
             perms.put("notification_access", media.isGranted());
             perms.put("bluetooth_connect", bluetooth.isGranted());
             perms.put("install_packages", getPackageManager().canRequestPackageInstalls());
+            perms.put("display_overlay", notifier.canOverlay());
             o.put("permissions", perms);
             JSONObject pair = new JSONObject();
             pair.put("paired", pairing.isPaired());
@@ -344,7 +351,7 @@ public final class AgentService extends Service implements HttpServer.InfoProvid
             o.put("endpoints", new JSONArray(Arrays.asList("/v1/state", "/v1/events", MediaReader.ARTWORK_PATH,
                 HttpServer.PICTURE_REFRESH_PATH, HttpServer.PICTURE_PATH, HttpServer.PICTURE_CONFIG_PATH,
                 HttpServer.POWER_SAVING_PATH, HttpServer.REST_AUTH_PATH, HttpServer.REST_PSK_PATH,
-                HttpServer.REMOTE_FIND_PATH)));
+                HttpServer.REMOTE_FIND_PATH, HttpServer.NOTIFY_PATH)));
         } catch (Exception ignored) {
         }
         return o;
