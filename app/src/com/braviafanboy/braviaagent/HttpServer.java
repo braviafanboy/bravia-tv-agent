@@ -26,6 +26,7 @@ public final class HttpServer implements Server.Handler {
     public static final int CONTRACT = 1;
     public static final String PICTURE_REFRESH_PATH = "/v1/picture/refresh";
     public static final String PICTURE_PATH = "/v1/picture";
+    public static final String PICTURE_BATCH_PATH = "/v1/picture/batch";
     public static final String PICTURE_CONFIG_PATH = "/v1/picture/config";
     public static final String POWER_SAVING_PATH = "/v1/power_saving";
     public static final String REST_AUTH_PATH = "/v1/rest/auth";
@@ -103,6 +104,7 @@ public final class HttpServer implements Server.Handler {
         }
         if ("/v1/update".equals(path)) return update(session);
         if (PICTURE_REFRESH_PATH.equals(path)) return pictureRefresh(session);
+        if (PICTURE_BATCH_PATH.equals(path)) return pictureBatch(session);
         if (PICTURE_PATH.equals(path)) return pictureWrite(session);
         if (PICTURE_CONFIG_PATH.equals(path)) return pictureConfig(session);
         if (POWER_SAVING_PATH.equals(path)) return powerSaving(session);
@@ -187,6 +189,15 @@ public final class HttpServer implements Server.Handler {
     }
 
     /** POST /v1/picture {"target", "value"}: write one picture target (validated against the last read). */
+    private HttpResponse pictureBatch(HttpRequest session) {
+        if (!"POST".equals(session.method)) return error(405, "method_not_allowed");
+        if (picture == null) return error(404, "not_found");
+        JSONObject body = body(session);
+        JSONArray settings = body == null ? null : body.optJSONArray("settings");
+        if (settings == null) return error(400, "settings_required");
+        return json(picture.writeBatch(settings));
+    }
+
     private HttpResponse pictureWrite(HttpRequest session) {
         if (!"POST".equals(session.method)) return error(405, "method_not_allowed");
         JSONObject body = body(session);

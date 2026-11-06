@@ -85,6 +85,7 @@ public final class PictureReader {
     private final AtomicBoolean fullQueued = new AtomicBoolean();
     private final SimpleDateFormat iso = new SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ss'Z'", Locale.US);
     private boolean running;
+    private final Object writeLock = new Object();
     private String lastSummary;
 
     // Guarded by this.
@@ -285,9 +286,84 @@ public final class PictureReader {
         // screen). Some apps, such as Twitch, do not follow picture changes
         // during playback at all; that is the app, not the write.
         String version = forceVersion != null ? forceVersion : "1.1";
-        authorizedCall("video", "setPictureQualitySettings", version, params);
+        synchronized (writeLock) {
+            authorizedCall("video", "setPictureQualitySettings", version, params);
+        }
         Log.i(TAG, "picture: wrote " + name);
         refresh();
+    }
+
+    /**
+     * Apply many picture targets for a profile restore. Serialised against other
+     * picture writes (writeLock) so an ambient-brightness or entity write cannot
+     * interleave. Each differing target is written on its own: the TV answers a
+     * one-setting setPictureQualitySettings in ~50 ms but hangs and then fails on
+     * a multi-setting call, so per-setting writes are both faster and reliable.
+     * Targets already at their value are skipped (a no-op write still costs the
+     * TV ~1 s). One retry per target, then a single read-back to validate.
+     * Returns {@code {applied, failed, results:[{target, ok, value}]}}.
+     */
+    public JSONObject writeBatch(JSONArray requested) {
+        JSONObject out = new JSONObject();
+        JSONArray results = new JSONArray();
+        int applied = 0, failed = 0;
+        synchronized (writeLock) {
+            readFull();
+            JSONObject cur;
+            synchronized (this) { cur = targets; }
+            for (int i = 0; i < requested.length(); i++) {
+                JSONObject r = requested.optJSONObject(i);
+                if (r == null || !r.has("target") || !r.has("value")) continue;
+                String target = r.optString("target");
+                String value = String.valueOf(r.opt("value"));
+                JSONObject ct = cur == null ? null : cur.optJSONObject(target);
+                String cv = ct == null ? null : ct.optString("value", null);
+                if (sameValue(value, cv)) continue;
+                if (!writeOne(target, value)) writeOne(target, value);
+            }
+            readFull();
+            JSONObject ts;
+            synchronized (this) { ts = targets; }
+            for (int i = 0; i < requested.length(); i++) {
+                JSONObject r = requested.optJSONObject(i);
+                if (r == null || !r.has("target")) continue;
+                String target = r.optString("target");
+                String want = String.valueOf(r.opt("value"));
+                JSONObject t = ts == null ? null : ts.optJSONObject(target);
+                String got = t == null ? null : t.optString("value", null);
+                boolean ok = sameValue(want, got);
+                if (ok) applied++; else failed++;
+                try {
+                    results.put(new JSONObject().put("target", target).put("ok", ok)
+                        .put("value", got == null ? JSONObject.NULL : got));
+                } catch (Exception ignored) { }
+            }
+        }
+        try { out.put("applied", applied).put("failed", failed).put("results", results); } catch (Exception ignored) { }
+        return out;
+    }
+
+    /** Write one picture target (one setPictureQualitySettings call, ~50 ms). */
+    private boolean writeOne(String target, String value) {
+        try {
+            authorizedCall("video", "setPictureQualitySettings", "1.1",
+                new JSONArray().put(new JSONObject().put("settings",
+                    new JSONArray().put(new JSONObject().put("target", target).put("value", value)))));
+            return true;
+        } catch (Exception e) {
+            Log.w(TAG, "picture write " + target + " failed: " + e);
+            return false;
+        }
+    }
+
+    /** Loose value equality: exact, array (ignoring spaces), or numeric. */
+    private static boolean sameValue(String a, String b) {
+        if (a == null) a = "";
+        if (b == null) b = "";
+        a = a.trim(); b = b.trim();
+        if (a.equals(b)) return true;
+        if (a.startsWith("[") && b.startsWith("[")) return a.replace(" ", "").equals(b.replace(" ", ""));
+        try { return Double.parseDouble(a) == Double.parseDouble(b); } catch (Exception e) { return false; }
     }
 
     public void writePowerSaving(String mode) throws WriteException {

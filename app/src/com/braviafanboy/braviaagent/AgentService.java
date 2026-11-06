@@ -349,7 +349,7 @@ public final class AgentService extends Service implements HttpServer.InfoProvid
             upd.put("pending_version", u.pendingUrl() == null ? JSONObject.NULL : u.pendingVersion());
             o.put("update", upd);
             o.put("endpoints", new JSONArray(Arrays.asList("/v1/state", "/v1/events", MediaReader.ARTWORK_PATH,
-                HttpServer.PICTURE_REFRESH_PATH, HttpServer.PICTURE_PATH, HttpServer.PICTURE_CONFIG_PATH,
+                HttpServer.PICTURE_REFRESH_PATH, HttpServer.PICTURE_PATH, HttpServer.PICTURE_BATCH_PATH, HttpServer.PICTURE_CONFIG_PATH,
                 HttpServer.POWER_SAVING_PATH, HttpServer.REST_AUTH_PATH, HttpServer.REST_PSK_PATH,
                 HttpServer.REMOTE_FIND_PATH, HttpServer.NOTIFY_PATH)));
         } catch (Exception ignored) {
