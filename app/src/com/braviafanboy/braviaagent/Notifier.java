@@ -146,8 +146,8 @@ public final class Notifier {
         LinearLayout row = new LinearLayout(context);
         row.setOrientation(LinearLayout.HORIZONTAL);
         row.setGravity(Gravity.CENTER_VERTICAL);
-        int padH = dp(24), padV = dp(16);
-        row.setPadding(padH, padV, padH, padV);
+        int padH = dp(20), padV = dp(14);
+        row.setPadding(padH, dp(10), padH, padV);
         GradientDrawable bg = new GradientDrawable();
         bg.setColor(0xFF2B2B2B);
         bg.setCornerRadius(dp(3));
@@ -181,7 +181,7 @@ public final class Notifier {
         if (!message.isEmpty()) {
             TextView m = new TextView(context);
             m.setText(message);
-            m.setTextColor(0x99FFFFFF);
+            m.setTextColor(0xFFE8EAED);
             m.setTextSize(TypedValue.COMPLEX_UNIT_SP, 12);
             m.setMaxLines(4);
             m.setEllipsize(android.text.TextUtils.TruncateAt.END);

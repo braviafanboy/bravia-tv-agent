@@ -4,13 +4,14 @@ The release workflow copies the section matching the tag into `agent.json`,
 which Home Assistant shows as the update's release notes. Keep each section
 under a `## <version>` heading, newest first.
 
-## Unreleased
+## 0.6.0
 
 - On-screen notifications: Home Assistant can show a message on the TV screen,
   as a banner styled like the TV's own notifications (over whatever is playing,
-  while the TV is on). Optional icon (native Sony icons) and duration. Needs the
-  *Display over other apps* permission. Not shown over the Settings menu and
-  other secure system screens, which suppress non-system overlays.
+  while the TV is on). Optional icon (native Sony icons) and duration. The
+  *Display over other apps* permission is part of Agent setup; the status screen
+  shows whether it is granted. Not shown over the Settings menu and other secure
+  system screens, which suppress non-system overlays.
 
 ## 0.5.0
 

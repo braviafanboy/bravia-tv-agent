@@ -137,8 +137,13 @@ public final class StatusActivity extends Activity {
         return getPackageManager().canRequestPackageInstalls();
     }
 
+    private boolean overlayGranted() {
+        return Settings.canDrawOverlays(this);
+    }
+
     private boolean allGranted() {
-        return bluetoothGranted() && notificationAccessGranted() && installGranted();
+        return bluetoothGranted() && notificationAccessGranted() && installGranted()
+            && overlayGranted();
     }
 
     /** Ask for the next missing grant not yet asked in this flow; false when none is left. */
@@ -155,6 +160,11 @@ public final class StatusActivity extends Activity {
         if (!installGranted() && asked.add("install")) {
             awaitingSettings = true;
             openInstallPermission();
+            return true;
+        }
+        if (!overlayGranted() && asked.add("overlay")) {
+            awaitingSettings = true;
+            openOverlayPermission();
             return true;
         }
         return false;
@@ -184,6 +194,17 @@ public final class StatusActivity extends Activity {
             startActivity(new Intent(Settings.ACTION_NOTIFICATION_LISTENER_SETTINGS));
         } catch (Exception e) {
             android.util.Log.w("BraviaAgent", "notification access settings: " + e);
+            awaitingSettings = false;
+        }
+    }
+
+    /** Settings → Display over other apps, for on-screen notifications. */
+    private void openOverlayPermission() {
+        try {
+            startActivity(new Intent(Settings.ACTION_MANAGE_OVERLAY_PERMISSION,
+                Uri.parse("package:" + getPackageName())));
+        } catch (Exception e) {
+            android.util.Log.w("BraviaAgent", "overlay permission settings: " + e);
             awaitingSettings = false;
         }
     }
@@ -306,6 +327,7 @@ public final class StatusActivity extends Activity {
         grantRow("Now playing", notificationAccessGranted(), "Needs Notification access");
         grantRow("Remote battery", bluetoothGranted(), "Needs Bluetooth permission");
         grantRow("Updates", installGranted(), "Needs \"Install unknown apps\"");
+        grantRow("On-screen messages", overlayGranted(), "Needs \"Display over other apps\"");
         if (svc != null) {
             JSONObject rest = svc.store().snapshot().optJSONObject("rest");
             if (rest == null) {

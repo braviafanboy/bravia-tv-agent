@@ -17,6 +17,8 @@ Home Assistant integration. It has no purpose on its own.
   and, with an IP control key, changed from Home Assistant.
 - **Remote and panel.** The remote's battery level and connection, a Find
   remote button that makes it beep, and whether the screen is actually lit.
+- **On-screen messages.** Home Assistant can show a message on the TV screen,
+  as a banner styled like the TV's own notifications.
 
 The integration's [entity reference](https://github.com/braviafanboy/bravia-tv-grpc-homeassistant/blob/main/docs/entities.md)
 lists every entity the agent provides.
@@ -44,7 +46,8 @@ fetch an app from outside Google Play, and its browser cannot download files.
 3. **Wait a few minutes.** The integration finds the agent, starts it,
    pairs with it and adds its entities. Nothing appears on screen.
 4. **Grant the optional permissions.** Now-playing needs *Notification
-   access* and the remote's battery and Find remote need *Bluetooth*. Press **Agent setup**
+   access* and the remote's battery and Find remote need *Bluetooth*, and on-screen messages
+   need *Display over other apps*. Press **Agent setup**
    on the TV's device page in Home Assistant, or open the HA TV Agent app on
    the TV, and accept the prompts with the remote.
 
