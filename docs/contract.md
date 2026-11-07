@@ -267,6 +267,43 @@ verifies it with a read that requires it. Answers
 
 Bearer. Forgets the stored credential.
 
+## Ambient brightness (`/v1/ambient`)
+
+The agent can set the TV's Brightness slider from the room's light level, per
+picture mode, SDR only. It runs on the TV; Home Assistant edits and mirrors it.
+Off by default. State block `ambient` (also `GET /v1/ambient`):
+
+```json
+{"enabled": true, "learning": false,
+ "state": "active", "reason": null,
+ "picture_mode": "professional", "brightness": 24, "target": 24, "lux": 31,
+ "own_curve": false, "anchors_lux": [0, 10, 25, 60, 150, 500],
+ "curve": [14, 14, 17, 24, 40, 40],
+ "curves": {"default": [14, 14, 17, 24, 40, 40], "modes": {}}}
+```
+
+- `state`: `off`, `active`, `paused` or `unavailable`. `reason` when not
+  plainly active: `screen_off`, `hdr`, `manual`, `tv_auto_luminance`,
+  `no_key`, `ip_control_unreachable`, `warming_up`, `no_light_sensor`.
+- `curve`: the current picture mode's six slider values (0..50) at
+  `anchors_lux`, interpolated in log-lux; the mode's own curve if it has one,
+  otherwise the default. The default is built on first use from the user's
+  brightness, shaped like Sony's own auto-luminance curve.
+- `lux`: the room level last acted on (a low percentile of the sensor over
+  45 s, so bright scenes don't count).
+
+All POSTs return the new block:
+
+- `POST /v1/ambient/config` `{"enabled"?, "learning"?}`.
+- `POST /v1/ambient/curve` `{"mode"?, "anchors": [6]}`: set a mode's curve
+  (no mode: the current picture mode). Kept non-decreasing.
+- `POST /v1/ambient/reset` `{"mode"?}`: drop a mode's own curve.
+- `POST /v1/ambient/curves` `{"default"?, "modes"?}`: replace all curves.
+- `POST /v1/ambient/context` `{"signal": "sdr" | "hdr10" | "dolby_vision" | ...}`:
+  the video's dynamic range class from Home Assistant's gRPC signal. The agent
+  also treats HDR tone mapping being available as HDR, for when Home
+  Assistant is down.
+
 ## `POST /v1/remote/find`
 
 Makes the bundled remote beep, as the TV's own Find remote does: a Bluetooth

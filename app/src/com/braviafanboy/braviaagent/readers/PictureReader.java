@@ -266,6 +266,27 @@ public final class PictureReader {
 
     /** {@code forceVersion} null writes with 1.1; "1.0" forces the old version (adb testing). */
     public void writeTarget(String name, String value, String forceVersion) throws WriteException {
+        write(name, value, forceVersion);
+        Log.i(TAG, "picture: wrote " + name);
+        refresh();
+    }
+
+    /**
+     * Write without the follow-up full re-read, for frequent small writes such
+     * as the ambient brightness ramp (a full read costs ~110 ms of TV CPU).
+     * The cached value is updated so the next publish shows it.
+     */
+    public void writeTargetQuiet(String name, String value) throws WriteException {
+        write(name, value, null);
+        synchronized (this) {
+            JSONObject t = targets == null ? null : targets.optJSONObject(name);
+            if (t != null) {
+                try { t.put("value", value); } catch (Exception ignored) { }
+            }
+        }
+    }
+
+    private void write(String name, String value, String forceVersion) throws WriteException {
         JSONObject t;
         synchronized (this) {
             if (!available || targets == null) throw new WriteException("rest_unavailable");
@@ -289,8 +310,40 @@ public final class PictureReader {
         synchronized (writeLock) {
             authorizedCall("video", "setPictureQualitySettings", version, params);
         }
-        Log.i(TAG, "picture: wrote " + name);
-        refresh();
+    }
+
+    /**
+     * Read the named targets now, one cheap call each (~3-6 ms of TV CPU),
+     * merging them into the cache. Blocking: call off the main thread. Returns
+     * null while IP control is unreachable.
+     */
+    public JSONObject readTargetsNow(List<String> names) {
+        JSONObject out = new JSONObject();
+        for (String name : names) {
+            try {
+                JSONArray r = rest.call("video", "getPictureQualitySettings", "1.1",
+                    new JSONArray().put(new JSONObject().put("target", name)));
+                JSONObject one = targetsOf(r.optJSONArray(0));
+                if (one.has(name)) {
+                    out.put(name, one.get(name));
+                    synchronized (this) {
+                        if (targets != null) targets.put(name, one.get(name));
+                    }
+                }
+            } catch (RestClient.RestException e) {
+                if (e.kind == RestClient.RestException.Kind.UNAVAILABLE) return null;
+            } catch (Exception ignored) {
+            }
+        }
+        return out;
+    }
+
+    public synchronized boolean isAvailable() {
+        return available;
+    }
+
+    public boolean writeAuthorized() {
+        return auth.writeAuthorized();
     }
 
     /**

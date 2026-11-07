@@ -19,6 +19,9 @@ Home Assistant integration. It has no purpose on its own.
   remote button that makes it beep, and whether the screen is actually lit.
 - **On-screen messages.** Home Assistant can show a message on the TV screen,
   as a banner styled like the TV's own notifications.
+- **Ambient brightness.** Optionally sets the picture Brightness from the room's
+  light level, with a curve per picture mode (SDR only). Runs on the TV, so it
+  keeps working while Home Assistant is down. Off by default.
 
 The integration's [entity reference](https://github.com/braviafanboy/bravia-tv-grpc-homeassistant/blob/main/docs/entities.md)
 lists every entity the agent provides.

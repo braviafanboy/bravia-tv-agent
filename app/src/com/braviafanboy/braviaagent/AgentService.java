@@ -38,7 +38,7 @@ public final class AgentService extends Service implements HttpServer.InfoProvid
     private static final int NOTIFICATION_ID = 1;
     public static final int PORT = 8585;
     public static final String SERVICE_TYPE = "_bravia-agent._tcp";
-    public static final String VERSION = "0.6.0";
+    public static final String VERSION = "0.8.0";
 
     private static volatile AgentService instance;
 
@@ -46,6 +46,7 @@ public final class AgentService extends Service implements HttpServer.InfoProvid
     private HttpServer server;
     private DeviceIdentity identity;
     private Pairing pairing;
+    private AmbientController ambient;
     private RemoteFinder remoteFinder;
     private Notifier notifier;
     private Tls tls;
@@ -103,6 +104,7 @@ public final class AgentService extends Service implements HttpServer.InfoProvid
         rest = new RestClient();
         restAuth = new RestAuth(this);
         picture = new PictureReader(this, store, rest, restAuth);
+        ambient = new AmbientController(this, store, picture);
         remoteFinder = new RemoteFinder(this, store);
         notifier = new Notifier(this);
         display.setPanelListener(this::onPanelChanged);
@@ -110,8 +112,10 @@ public final class AgentService extends Service implements HttpServer.InfoProvid
         inputs.start();
         identity.start();
         if (display.isPanelOn()) resumeReaders(); else Log.i(TAG, "panel off at start: readers paused");
+        ambient.onPanel(display.isPanelOn());
         server = new HttpServer(this, PORT, store, this, media, pairing, picture);
         server.setRest(rest, restAuth);
+        server.setAmbient(ambient);
         server.setRemoteFinder(remoteFinder);
         server.setNotifier(notifier);
         try {
@@ -139,6 +143,7 @@ public final class AgentService extends Service implements HttpServer.InfoProvid
 
     @Override
     public void onDestroy() {
+        if (ambient != null) ambient.shutdown();
         unregisterMdns();
         if (server != null) server.stop();
         pauseReaders();
@@ -162,6 +167,7 @@ public final class AgentService extends Service implements HttpServer.InfoProvid
      *   picture config POLL_S EVENT_REFRESH(true|false) [T1,T2,...]
      *   power_saving off|low|high
      *   pairing window | pairing forget   (development: open the 60 s window / clear the token)
+     *   ambient [on|off|learn on|learn off|reset]
      *   remote find                       (beep the remote)
      * </pre>
      */
@@ -222,6 +228,16 @@ public final class AgentService extends Service implements HttpServer.InfoProvid
                     }
                     default: break;
                 }
+            } else if ("ambient".equals(cmd)) {
+                // ambient | ambient on|off | ambient learn on|off | ambient reset
+                switch (sub) {
+                    case "on": ambient.setEnabled(true); break;
+                    case "off": ambient.setEnabled(false); break;
+                    case "learn": ambient.setLearning(args.length > 2 && "on".equals(args[2])); break;
+                    case "reset": ambient.resetCurve(null); break;
+                    default: break;
+                }
+                pw.println(ambient.status().toString());
             } else if ("media".equals(cmd)) {
                 pw.println(media.dump());
             } else if ("remote".equals(cmd) && "find".equals(sub)) {
@@ -286,6 +302,7 @@ public final class AgentService extends Service implements HttpServer.InfoProvid
      */
     private void onPanelChanged(boolean on) {
         if (on) resumeReaders(); else pauseReaders();
+        if (ambient != null) ambient.onPanel(on);
     }
 
     private void resumeReaders() {
@@ -353,7 +370,8 @@ public final class AgentService extends Service implements HttpServer.InfoProvid
             o.put("endpoints", new JSONArray(Arrays.asList("/v1/state", "/v1/events", MediaReader.ARTWORK_PATH,
                 HttpServer.PICTURE_REFRESH_PATH, HttpServer.PICTURE_PATH, HttpServer.PICTURE_BATCH_PATH, HttpServer.PICTURE_CONFIG_PATH,
                 HttpServer.POWER_SAVING_PATH, HttpServer.REST_AUTH_PATH, HttpServer.REST_PSK_PATH,
-                HttpServer.REMOTE_FIND_PATH, HttpServer.NOTIFY_PATH, HttpServer.MEDIA_COMMAND_PATH)));
+                HttpServer.REMOTE_FIND_PATH, HttpServer.NOTIFY_PATH, HttpServer.MEDIA_COMMAND_PATH,
+                HttpServer.AMBIENT_PATH)));
         } catch (Exception ignored) {
         }
         return o;

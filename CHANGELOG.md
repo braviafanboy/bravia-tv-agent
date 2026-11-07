@@ -4,6 +4,16 @@ The release workflow copies the section matching the tag into `agent.json`,
 which Home Assistant shows as the update's release notes. Keep each section
 under a `## <version>` heading, newest first.
 
+## 0.8.0
+
+- Ambient brightness (off by default): sets the TV's picture Brightness from
+  the room's light level, with a separate curve per picture mode, SDR only. The
+  loop runs on the TV, so it keeps working while Home Assistant is down. A
+  manual brightness change either switches it off (learning off) or is learnt as
+  that mode's value for the current light (learning on); it pauses during HDR or
+  Dolby Vision, while the TV's own Auto luminance level is on, and with the
+  screen off. Controlled from Home Assistant through `/v1/ambient`.
+
 ## 0.7.1
 
 - Picture-profile restore support: bulk picture-setting write (POST

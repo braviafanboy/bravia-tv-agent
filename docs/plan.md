@@ -491,6 +491,38 @@ playback (the TV stores and shows the value, the picture stays), which first
 made 1.1 look broken; test picture writes in YouTube. `dumpsys … picture setv
 1.0|1.1 TARGET VALUE` forces a version for such tests.
 
+## Ambient brightness (in development, branch feature/ambient-brightness)
+
+Manual-change behaviour (revised 2026-11-07, user's decision):
+
+- **Learning off:** a hand change to the brightness turns ambient brightness
+  **off** until someone switches it back on (no auto-resume). `setEnabled(false)`
+  from the loop; the HA switch reflects it as off.
+- **Learning on:** once the new value has held steady for the **5 s** settle
+  (`MANUAL_SETTLE_MS`, the same wait as switching off), it learns it as this
+  mode's brightness for the current light and **resumes at once** — no post-learn
+  hold, because the curve now matches this value at this light, so the decider
+  sits still until the room light actually changes (and then only after its
+  8 s / 20 s confirm). (The loop stays paused on the viewer's value through the
+  settle.)
+- This replaces the old 30-minute / 2x-light manual pause. The old "off/on
+  doesn't clear the pause" bug is fixed too: `resetLoop` now clears
+  `pausedManual`/`pauseUntil`/`pauseLux`, so any reset starts clean. (Early
+  resume on a 2x light change still applies during the 60 s hold.)
+- **No fighting before detection.** Brightness only lands in `context` every 5 s,
+  but the loop writes up to once a second, so a hand change between polls could
+  be fought — and mid-ramp overwritten before it was ever noticed (so, with
+  learning on, the wrong value learnt or none at all). Fixed: before each
+  brightness write the loop does a fresh single-target read (`liveBrightness()`);
+  if the slider moved from `lastWritten`, it treats it as a manual change
+  (forces a context re-read, pauses) instead of writing. Covers both modes since
+  it is in the shared write path.
+- Still to test live: learning, the 60 s hold + resume, the learning-off
+  disable, lights on/off timing, the HDR pause.
+- Verified live: the auto-disable while the TV's Auto luminance level is on;
+  ramping 40 -> 17 at 25 lux one step per second, then holding. The light
+  sensor is on-change, so the loop samples the latest reading every second.
+
 ## Open questions
 
 - Does the HTTP server keep its port after a Wi-Fi drop or IP change, and does

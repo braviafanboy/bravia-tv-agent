@@ -31,6 +31,7 @@ public final class HttpServer implements Server.Handler {
     public static final String POWER_SAVING_PATH = "/v1/power_saving";
     public static final String REST_AUTH_PATH = "/v1/rest/auth";
     public static final String REST_PSK_PATH = "/v1/rest/psk";
+    public static final String AMBIENT_PATH = "/v1/ambient";
     public static final String REMOTE_FIND_PATH = "/v1/remote/find";
     public static final String NOTIFY_PATH = "/v1/notify";
     public static final String MEDIA_COMMAND_PATH = "/v1/media/command";
@@ -46,6 +47,7 @@ public final class HttpServer implements Server.Handler {
     private final PictureReader picture;
     private RestClient rest;
     private RestAuth restAuth;
+    private AmbientController ambient;
     private RemoteFinder remoteFinder;
     private final Updater updater;
     private final int port;
@@ -67,6 +69,10 @@ public final class HttpServer implements Server.Handler {
     }
 
     /** The REST client and credential store used by the registration endpoints. */
+    public void setAmbient(AmbientController ambient) {
+        this.ambient = ambient;
+    }
+
     private Notifier notifier;
 
     public void setNotifier(Notifier n) {
@@ -112,6 +118,7 @@ public final class HttpServer implements Server.Handler {
         if (POWER_SAVING_PATH.equals(path)) return powerSaving(session);
         if (REST_AUTH_PATH.equals(path)) return restForget(session);
         if (REST_PSK_PATH.equals(path)) return restPsk(session);
+        if (path.equals(AMBIENT_PATH) || path.startsWith(AMBIENT_PATH + "/")) return ambient(session, path.substring(AMBIENT_PATH.length()));
         if (REMOTE_FIND_PATH.equals(path)) {
             // POST /v1/remote/find: beep the remote; waits until the first beep
             // command is written or fails (<= ~15 s). {"state": ringing | found |
@@ -290,6 +297,56 @@ public final class HttpServer implements Server.Handler {
         JSONObject o = new JSONObject();
         try { o.put("write_authorized", ok); } catch (Exception ignored) { }
         return json(o);
+    }
+
+    /**
+     * Ambient brightness. GET /v1/ambient: status and curves. POST
+     * /v1/ambient/config {"enabled", "learning"}; /v1/ambient/curve {"mode"?,
+     * "anchors": [6]}; /v1/ambient/reset {"mode"?}; /v1/ambient/curves
+     * {"default"?, "modes"?}; /v1/ambient/context {"signal"}. A missing mode
+     * means the current picture mode.
+     */
+    private HttpResponse ambient(HttpRequest session, String sub) {
+        if (ambient == null) return error(404, "not_found");
+        if (sub.isEmpty() || sub.equals("/")) {
+            if (!"GET".equals(session.method)) return error(405, "method_not_allowed");
+            return json(ambient.status());
+        }
+        if (!"POST".equals(session.method)) return error(405, "method_not_allowed");
+        JSONObject body = body(session);
+        if (body == null) return error(400, "json_body_required");
+        String mode = body.optString("mode", null);
+        if (mode != null && mode.isEmpty()) mode = null;
+        try {
+            switch (sub) {
+                case "/config":
+                    if (body.has("enabled")) ambient.setEnabled(body.optBoolean("enabled"));
+                    if (body.has("learning")) ambient.setLearning(body.optBoolean("learning"));
+                    break;
+                case "/curve": {
+                    JSONArray a = body.optJSONArray("anchors");
+                    if (a == null || a.length() != com.braviafanboy.braviaagent.ambient.AmbientCurve.ANCHORS) {
+                        return error(400, "anchors_required");
+                    }
+                    ambient.setCurve(mode, AmbientController.ints(a));
+                    break;
+                }
+                case "/reset":
+                    ambient.resetCurve(mode);
+                    break;
+                case "/curves":
+                    ambient.setCurves(body);
+                    break;
+                case "/context":
+                    ambient.setSignal(body.optString("signal", null));
+                    break;
+                default:
+                    return error(404, "not_found");
+            }
+        } catch (IllegalArgumentException e) {
+            return error(400, "invalid_curve");
+        }
+        return json(ambient.status());
     }
 
     private HttpResponse writeError(String code) {
