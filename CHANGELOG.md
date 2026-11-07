@@ -4,6 +4,18 @@ The release workflow copies the section matching the tag into `agent.json`,
 which Home Assistant shows as the update's release notes. Keep each section
 under a `## <version>` heading, newest first.
 
+## 0.9.0
+
+- Dashboards on the TV: Home Assistant can show one of its dashboards full
+  screen (the remote's arrows move between controls, OK presses, Back steps
+  back and then asks before closing, and you return to the app you were in)
+  or as a view-only panel over what is playing, styled and animated like the
+  on-screen messages. It signs in with short-lived tokens from Home Assistant,
+  kept in memory only, and the TV must be able to reach Home Assistant. Needs
+  "Display over other apps". Controlled through `/v1/dashboard`.
+- Fix: Home Assistant could not pair again while the agent's status screen was
+  open on the TV.
+
 ## 0.8.0
 
 - Ambient brightness (off by default): sets the TV's picture Brightness from
