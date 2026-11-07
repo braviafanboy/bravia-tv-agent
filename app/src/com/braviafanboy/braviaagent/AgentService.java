@@ -222,6 +222,8 @@ public final class AgentService extends Service implements HttpServer.InfoProvid
                     }
                     default: break;
                 }
+            } else if ("media".equals(cmd)) {
+                pw.println(media.dump());
             } else if ("remote".equals(cmd) && "find".equals(sub)) {
                 pw.println("remote finder: " + remoteFinder.find());
             } else if ("notify".equals(cmd)) {
@@ -351,7 +353,7 @@ public final class AgentService extends Service implements HttpServer.InfoProvid
             o.put("endpoints", new JSONArray(Arrays.asList("/v1/state", "/v1/events", MediaReader.ARTWORK_PATH,
                 HttpServer.PICTURE_REFRESH_PATH, HttpServer.PICTURE_PATH, HttpServer.PICTURE_BATCH_PATH, HttpServer.PICTURE_CONFIG_PATH,
                 HttpServer.POWER_SAVING_PATH, HttpServer.REST_AUTH_PATH, HttpServer.REST_PSK_PATH,
-                HttpServer.REMOTE_FIND_PATH, HttpServer.NOTIFY_PATH)));
+                HttpServer.REMOTE_FIND_PATH, HttpServer.NOTIFY_PATH, HttpServer.MEDIA_COMMAND_PATH)));
         } catch (Exception ignored) {
         }
         return o;

@@ -291,6 +291,17 @@ the overlay banner; `notification` = overlay not permitted, posted to the panel
 instead. The banner is suppressed on secure system screens (e.g. Settings),
 which hide non-system overlays.
 
+## `POST /v1/media/command`
+
+Sends a transport command to the currently active media session (the one
+`/v1/state` reports as now playing), so the integration can control playback on
+the local session instead of over the Sony cloud. Body
+`{"action", "position_ms"?}` where `action` is `play`, `pause`, `stop`, `next`,
+`previous` or `seek` (`position_ms` is the absolute target for `seek`). Answers
+`{"ok": <bool>}`: `ok` is false when there is no controllable session (e.g. live
+TV or an input that publishes none), and the integration then falls back to the
+cloud. Added in 0.7.0; older agents answer 404 and the integration falls back.
+
 ## `GET /v1/events`
 
 `text/event-stream`. Events:

@@ -6,6 +6,7 @@ import android.content.Context;
 import android.graphics.Bitmap;
 import android.media.MediaMetadata;
 import android.media.session.MediaController;
+import android.media.session.MediaSession;
 import android.media.session.MediaSessionManager;
 import android.media.session.PlaybackState;
 import android.os.Handler;
@@ -175,6 +176,12 @@ public final class MediaReader {
     }
 
     private void attach(List<MediaController> list) {
+        setControllers(list);
+        publish();
+    }
+
+    /** Bind callbacks to the given controllers (no publish). */
+    private void setControllers(List<MediaController> list) {
         detach();
         if (list != null) {
             for (MediaController c : list) {
@@ -191,16 +198,42 @@ public final class MediaReader {
                 }
             }
         }
-        publish();
+    }
+
+    /** Re-query the active sessions and rebind if the set changed. YouTube (and
+     *  others) spin up a new session per video; the change listener can miss it,
+     *  leaving a stale controller frozen at the old video's end. Called before
+     *  each pick so a dead session never wins. */
+    private void refreshControllers() {
+        if (!attached || manager == null) return;
+        List<MediaController> active;
+        try {
+            active = manager.getActiveSessions(listener);
+        } catch (SecurityException e) {
+            return;
+        }
+        java.util.Set<MediaSession.Token> want = new java.util.HashSet<>();
+        for (MediaController c : active) want.add(c.getSessionToken());
+        java.util.Set<MediaSession.Token> have = new java.util.HashSet<>();
+        for (MediaController c : controllers) have.add(c.getSessionToken());
+        if (!want.equals(have)) setControllers(active);
     }
 
     private MediaController pick() {
         MediaController best = null;
         int bestRank = -1;
+        long bestUpdate = Long.MIN_VALUE;
         for (MediaController c : controllers) {
             PlaybackState ps = c.getPlaybackState();
             int rank = rank(ps == null ? PlaybackState.STATE_NONE : ps.getState());
-            if (rank > bestRank) { best = c; bestRank = rank; }
+            // Tiebreak by freshest position update, so a live session beats a
+            // stale one of the same state (e.g. an ended, still-"playing" one).
+            long update = ps == null ? Long.MIN_VALUE : ps.getLastPositionUpdateTime();
+            if (rank > bestRank || (rank == bestRank && update > bestUpdate)) {
+                best = c;
+                bestRank = rank;
+                bestUpdate = update;
+            }
         }
         return best;
     }
@@ -215,8 +248,102 @@ public final class MediaReader {
         }
     }
 
+    /**
+     * Send a transport command to the currently active media session, so the
+     * integration can control playback on the local session instead of over the
+     * Sony cloud. Runs on the main thread, where the controller list is mutated.
+     * Returns false when there is no controllable session (caller falls back).
+     */
+    public boolean command(String action, long positionMs) {
+        final boolean[] ok = {false};
+        final java.util.concurrent.CountDownLatch latch =
+                new java.util.concurrent.CountDownLatch(1);
+        handler.post(() -> {
+            try {
+                ok[0] = applyCommand(action, positionMs);
+            } finally {
+                latch.countDown();
+            }
+        });
+        try {
+            latch.await(1500, java.util.concurrent.TimeUnit.MILLISECONDS);
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+        }
+        return ok[0];
+    }
+
+    private boolean applyCommand(String action, long positionMs) {
+        MediaController c = pick();
+        if (c == null) return false;
+        MediaController.TransportControls t = c.getTransportControls();
+        switch (action) {
+            case "play": t.play(); return true;
+            case "pause": t.pause(); return true;
+            case "stop": t.stop(); return true;
+            case "next": t.skipToNext(); return true;
+            case "previous": t.skipToPrevious(); return true;
+            case "seek": t.seekTo(positionMs); return true;
+            default: return false;
+        }
+    }
+
+    /** Diagnostic (adb dumpsys): every active session's full MediaMetadata
+     *  key set + values and PlaybackState, to map what each app publishes.
+     *  Reads a snapshot of the controller list directly (MediaController getters
+     *  are thread-safe); no main-thread hop. */
+    public String dump() {
+        MediaController[] snapshot;
+        try {
+            snapshot = controllers.toArray(new MediaController[0]);
+        } catch (Exception e) {
+            snapshot = new MediaController[0];
+        }
+        StringBuilder sb = new StringBuilder();
+        long now = SystemClock.elapsedRealtime();
+        sb.append("attached=").append(attached)
+          .append(" sessions=").append(snapshot.length)
+          .append(" now_elapsedRealtime=").append(now).append('\n');
+        for (MediaController c : snapshot) {
+            PlaybackState ps = c.getPlaybackState();
+            long upd = ps == null ? -1 : ps.getLastPositionUpdateTime();
+            long extrap = ps == null ? -1
+                : ps.getPosition() + (long) ((now - upd) * ps.getPlaybackSpeed());
+            sb.append("- ").append(c.getPackageName())
+              .append(" state=").append(ps == null ? "null" : ps.getState())
+              .append(" pos=").append(ps == null ? -1 : ps.getPosition())
+              .append(" updated=").append(upd)
+              .append(" age_ms=").append(ps == null ? -1 : (now - upd))
+              .append(" extrapolated=").append(extrap)
+              .append(" speed=").append(ps == null ? 0 : ps.getPlaybackSpeed())
+              .append(" actions=").append(ps == null ? 0 : ps.getActions())
+              .append('\n');
+            MediaMetadata md = c.getMetadata();
+            if (md == null) { sb.append("    metadata: null\n"); continue; }
+            sb.append("    keys=").append(md.size()).append('\n');
+            for (String k : md.keySet()) {
+                sb.append("    ").append(k).append(" = ").append(dumpValue(md, k)).append('\n');
+            }
+        }
+        return sb.toString();
+    }
+
+    private static String dumpValue(MediaMetadata md, String k) {
+        try {
+            CharSequence t = md.getText(k);
+            if (t != null) return t.toString();
+            if (md.getBitmap(k) != null) return "<bitmap>";
+            if (md.getRating(k) != null) return "<rating>";
+            long l = md.getLong(k);
+            return l != 0 ? Long.toString(l) : "<empty>";
+        } catch (Exception e) {
+            return "?";
+        }
+    }
+
     private void publish() {
         handler.removeCallbacks(tick);
+        refreshControllers();
         MediaController c = pick();
         JSONObject o = new JSONObject();
         try {
@@ -247,14 +374,21 @@ public final class MediaReader {
             o.put("artist", artist == null ? JSONObject.NULL : artist);
             String album = text(md, MediaMetadata.METADATA_KEY_ALBUM);
             o.put("album", album == null ? JSONObject.NULL : album);
+            long dur = md == null ? 0 : md.getLong(MediaMetadata.METADATA_KEY_DURATION);
             if (ps != null && ps.getPosition() != PlaybackState.PLAYBACK_POSITION_UNKNOWN) {
                 long pos = ps.getPosition();
-                if (playing) pos += (long) ((SystemClock.elapsedRealtime() - ps.getLastPositionUpdateTime()) * ps.getPlaybackSpeed());
-                o.put("position_s", Math.max(0, pos) / 1000.0);
+                // Only extrapolate while playing AND the base hasn't already
+                // reached the end: a stale/ended session can sit at the duration,
+                // and extrapolating it would run the position past the end.
+                if (playing && (dur <= 0 || pos < dur)) {
+                    pos += (long) ((SystemClock.elapsedRealtime() - ps.getLastPositionUpdateTime()) * ps.getPlaybackSpeed());
+                }
+                pos = Math.max(0, pos);
+                if (dur > 0) pos = Math.min(pos, dur);  // never exceed the duration
+                o.put("position_s", pos / 1000.0);
             } else {
                 o.put("position_s", JSONObject.NULL);
             }
-            long dur = md == null ? 0 : md.getLong(MediaMetadata.METADATA_KEY_DURATION);
             o.put("duration_s", dur > 0 ? dur / 1000.0 : JSONObject.NULL);
             updateArtwork(md);
             synchronized (this) {

@@ -33,6 +33,7 @@ public final class HttpServer implements Server.Handler {
     public static final String REST_PSK_PATH = "/v1/rest/psk";
     public static final String REMOTE_FIND_PATH = "/v1/remote/find";
     public static final String NOTIFY_PATH = "/v1/notify";
+    public static final String MEDIA_COMMAND_PATH = "/v1/media/command";
     private static final long HEARTBEAT_MS = 30000;
     private static final int QUEUE_DEPTH = 16;
     /** Home Assistant holds the event stream plus a few short requests; this leaves ample headroom. */
@@ -107,6 +108,7 @@ public final class HttpServer implements Server.Handler {
         if (PICTURE_BATCH_PATH.equals(path)) return pictureBatch(session);
         if (PICTURE_PATH.equals(path)) return pictureWrite(session);
         if (PICTURE_CONFIG_PATH.equals(path)) return pictureConfig(session);
+        if (MEDIA_COMMAND_PATH.equals(path)) return mediaCommand(session);
         if (POWER_SAVING_PATH.equals(path)) return powerSaving(session);
         if (REST_AUTH_PATH.equals(path)) return restForget(session);
         if (REST_PSK_PATH.equals(path)) return restPsk(session);
@@ -196,6 +198,23 @@ public final class HttpServer implements Server.Handler {
         JSONArray settings = body == null ? null : body.optJSONArray("settings");
         if (settings == null) return error(400, "settings_required");
         return json(picture.writeBatch(settings));
+    }
+
+    /** POST /v1/media/command {"action", "position_ms"?}: send a transport
+     *  command to the active media session. {"ok": true|false}. */
+    private HttpResponse mediaCommand(HttpRequest session) {
+        if (!"POST".equals(session.method)) return error(405, "method_not_allowed");
+        if (media == null) return error(404, "not_found");
+        JSONObject body = body(session);
+        String action = body == null ? "" : body.optString("action", "");
+        if (action.isEmpty()) return error(400, "action_required");
+        long position = body.optLong("position_ms", 0);
+        JSONObject o = new JSONObject();
+        try {
+            o.put("ok", media.command(action, position));
+        } catch (Exception ignored) {
+        }
+        return json(o);
     }
 
     private HttpResponse pictureWrite(HttpRequest session) {
