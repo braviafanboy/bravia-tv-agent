@@ -19,6 +19,10 @@ Home Assistant integration. It has no purpose on its own.
   remote button that makes it beep, and whether the screen is actually lit.
 - **On-screen messages.** Home Assistant can show a message on the TV screen,
   as a banner styled like the TV's own notifications.
+- **Dashboards on the TV.** Home Assistant can put one of its dashboards on
+  the screen, full screen to use with the remote or as a view-only panel over
+  what is playing. It signs in with short-lived tokens from Home Assistant,
+  kept in memory only; the TV must be able to reach Home Assistant.
 - **Ambient brightness.** Optionally sets the picture Brightness from the room's
   light level, with a curve per picture mode (SDR only). Runs on the TV, so it
   keeps working while Home Assistant is down. Off by default.
@@ -50,7 +54,7 @@ fetch an app from outside Google Play, and its browser cannot download files.
    pairs with it and adds its entities. Nothing appears on screen.
 4. **Grant the optional permissions.** Now-playing needs *Notification
    access* and the remote's battery and Find remote need *Bluetooth*, and on-screen messages
-   need *Display over other apps*. Press **Agent setup**
+   and dashboards need *Display over other apps*. Press **Agent setup**
    on the TV's device page in Home Assistant, or open the HA TV Agent app on
    the TV, and accept the prompts with the remote.
 

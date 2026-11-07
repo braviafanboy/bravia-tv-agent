@@ -108,7 +108,27 @@ public final class StatusActivity extends Activity {
         setIntent(intent);
         Uri data = intent.getData();
         if (isPairLink(data)) { finish(); return; }
-        if (data != null && "braviaagent".equals(data.getScheme()) && "setup".equals(data.getHost())) {
+        boolean setupLink = data != null && "braviaagent".equals(data.getScheme()) && "setup".equals(data.getHost());
+        boolean updateLink = data != null && "braviaagent".equals(data.getScheme()) && "update".equals(data.getHost());
+        // The screen is already open, so a launch arrives here rather than in
+        // onCreate. A launch by the TV's control service (the integration's
+        // local launch) must still open the pairing window or start a staged
+        // update; otherwise re-pairing fails whenever this screen is showing.
+        Uri referrer = getReferrer();
+        String host = referrer == null ? null : referrer.getHost();
+        boolean byTv = host != null && host.startsWith("com.sony.");
+        if (updateLink || (byTv && !setupLink && new Updater(this).pendingUrl() != null)) {
+            startActivity(new Intent(this, UpdateActivity.class).setData(data));
+            return;
+        }
+        if (byTv && !setupLink) {
+            android.util.Log.i("BraviaAgent", "launched by " + host + " while open: pairing window");
+            AgentService svc = AgentService.instance();
+            if (svc != null) svc.pairing().openWindow();
+            toast("Home Assistant is pairing with the HA TV Agent");
+            return;
+        }
+        if (setupLink) {
             setupFlow = true;
             asked.clear();
             advance();
@@ -198,7 +218,7 @@ public final class StatusActivity extends Activity {
         }
     }
 
-    /** Settings → Display over other apps, for on-screen notifications. */
+    /** Settings → Display over other apps, for on-screen notifications and dashboards. */
     private void openOverlayPermission() {
         try {
             startActivity(new Intent(Settings.ACTION_MANAGE_OVERLAY_PERMISSION,
@@ -327,7 +347,7 @@ public final class StatusActivity extends Activity {
         grantRow("Now playing", notificationAccessGranted(), "Needs Notification access");
         grantRow("Remote battery", bluetoothGranted(), "Needs Bluetooth permission");
         grantRow("Updates", installGranted(), "Needs \"Install unknown apps\"");
-        grantRow("On-screen messages", overlayGranted(), "Needs \"Display over other apps\"");
+        grantRow("On-screen messages and dashboards", overlayGranted(), "Needs \"Display over other apps\"");
         if (svc != null) {
             JSONObject rest = svc.store().snapshot().optJSONObject("rest");
             if (rest == null) {

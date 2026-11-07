@@ -43,6 +43,18 @@
             </intent-filter>
         </activity>
 
+        <!-- A Home Assistant dashboard, full screen (started by the service).
+             Its own task (empty affinity), so closing it returns to whatever
+             was on screen before, not to the agent's status screen. -->
+        <activity
+            android:name=".DashboardActivity"
+            android:exported="false"
+            android:excludeFromRecents="true"
+            android:taskAffinity=""
+            android:launchMode="singleTask"
+            android:configChanges="orientation|screenSize|keyboard|keyboardHidden|navigation"
+            android:theme="@android:style/Theme.DeviceDefault.NoActionBar.Fullscreen" />
+
         <activity
             android:name=".UpdateActivity"
             android:exported="true"

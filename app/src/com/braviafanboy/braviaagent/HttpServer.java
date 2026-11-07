@@ -35,6 +35,7 @@ public final class HttpServer implements Server.Handler {
     public static final String REMOTE_FIND_PATH = "/v1/remote/find";
     public static final String NOTIFY_PATH = "/v1/notify";
     public static final String MEDIA_COMMAND_PATH = "/v1/media/command";
+    public static final String DASHBOARD_PATH = "/v1/dashboard";
     private static final long HEARTBEAT_MS = 30000;
     private static final int QUEUE_DEPTH = 16;
     /** Home Assistant holds the event stream plus a few short requests; this leaves ample headroom. */
@@ -77,6 +78,12 @@ public final class HttpServer implements Server.Handler {
 
     public void setNotifier(Notifier n) {
         this.notifier = n;
+    }
+
+    private com.braviafanboy.braviaagent.dashboard.DashboardController dashboard;
+
+    public void setDashboard(com.braviafanboy.braviaagent.dashboard.DashboardController d) {
+        this.dashboard = d;
     }
 
     public void setRemoteFinder(RemoteFinder finder) {
@@ -129,6 +136,7 @@ public final class HttpServer implements Server.Handler {
             try { o.put("state", remoteFinder.find()); } catch (Exception ignored) { }
             return json(o);
         }
+        if (path.equals(DASHBOARD_PATH) || path.startsWith(DASHBOARD_PATH + "/")) return dashboard(session, path.substring(DASHBOARD_PATH.length()));
         if (NOTIFY_PATH.equals(path)) {
             // POST /v1/notify {"title", "message", "duration_s"}: show a message
             // on the TV screen. {"state": shown | notification | failed}.
@@ -347,6 +355,51 @@ public final class HttpServer implements Server.Handler {
             return error(400, "invalid_curve");
         }
         return json(ambient.status());
+    }
+
+    /**
+     * Home Assistant dashboards on the TV. POST /v1/dashboard {"url", "mode":
+     * full|overlay, "position"?, "size"?, "duration_s"?, "kiosk"?, "token",
+     * "expires_in"} -> {"state": shown | no_permission | failed}; POST
+     * /v1/dashboard/token {"token", "expires_in"}; DELETE /v1/dashboard; GET
+     * /v1/dashboard -> the state block.
+     */
+    private HttpResponse dashboard(HttpRequest session, String sub) {
+        if (dashboard == null) return error(404, "not_found");
+        if (sub.isEmpty()) {
+            if ("GET".equals(session.method)) return json(dashboard.status());
+            if ("DELETE".equals(session.method)) {
+                dashboard.close();
+                return ok();
+            }
+            if (!"POST".equals(session.method)) return error(405, "method_not_allowed");
+            JSONObject body = body(session);
+            if (body == null) return error(400, "json_body_required");
+            com.braviafanboy.braviaagent.dashboard.DashboardSpec spec;
+            try {
+                spec = com.braviafanboy.braviaagent.dashboard.DashboardSpec.parse(
+                    body.optString("url", null), body.optString("mode", null), body.optString("position", null),
+                    body.optInt("size", 0), body.optInt("duration_s", 0), body.optBoolean("kiosk", true));
+            } catch (IllegalArgumentException e) {
+                return error(400, e.getMessage());
+            }
+            String token = body.optString("token", "");
+            int expiresIn = body.optInt("expires_in", 0);
+            if (token.isEmpty() || expiresIn <= 0) return error(400, "token_required");
+            JSONObject o = new JSONObject();
+            try { o.put("state", dashboard.open(spec, token, expiresIn)); } catch (Exception ignored) { }
+            return json(o);
+        }
+        if ("/token".equals(sub)) {
+            if (!"POST".equals(session.method)) return error(405, "method_not_allowed");
+            JSONObject body = body(session);
+            String token = body == null ? "" : body.optString("token", "");
+            int expiresIn = body == null ? 0 : body.optInt("expires_in", 0);
+            if (token.isEmpty() || expiresIn <= 0) return error(400, "token_required");
+            dashboard.setToken(token, expiresIn);
+            return ok();
+        }
+        return error(404, "not_found");
     }
 
     private HttpResponse writeError(String code) {

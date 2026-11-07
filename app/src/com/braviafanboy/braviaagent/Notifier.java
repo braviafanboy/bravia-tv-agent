@@ -41,9 +41,12 @@ public final class Notifier {
     private static final int MAX_DURATION_S = 120;
     // Match Sony's own notification motion: 500 ms slide-by-height + crossfade,
     // default ease-in-out curve (SonyNotificationView uses the same).
-    private static final long OPEN_MS = 500L;
-    private static final long CLOSE_MS = 500L;
-    private static final android.view.animation.Interpolator EASE =
+    public static final long OPEN_MS = 500L;
+    public static final long CLOSE_MS = 500L;
+    /** The banner's background and corner radius (dp); dashboard panels match them. */
+    public static final int BACKGROUND = 0xFF2B2B2B;
+    public static final int CORNER_DP = 3;
+    public static final android.view.animation.Interpolator EASE =
         new android.view.animation.AccelerateDecelerateInterpolator();
     // Friendly icon keys -> native Sony SystemUI drawable names (loaded at runtime,
     // tinted white). Unknown/absent -> framework fallback; "none"/empty -> no icon.
@@ -149,8 +152,8 @@ public final class Notifier {
         int padH = dp(20), padV = dp(14);
         row.setPadding(padH, dp(10), padH, padV);
         GradientDrawable bg = new GradientDrawable();
-        bg.setColor(0xFF2B2B2B);
-        bg.setCornerRadius(dp(3));
+        bg.setColor(BACKGROUND);
+        bg.setCornerRadius(dp(CORNER_DP));
         row.setBackground(bg);
         row.setMinimumWidth(dp(240));
 

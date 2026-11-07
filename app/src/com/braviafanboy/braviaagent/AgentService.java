@@ -49,6 +49,7 @@ public final class AgentService extends Service implements HttpServer.InfoProvid
     private AmbientController ambient;
     private RemoteFinder remoteFinder;
     private Notifier notifier;
+    private com.braviafanboy.braviaagent.dashboard.DashboardController dashboard;
     private Tls tls;
     private EnvironmentReader environment;
     private DisplayReader display;
@@ -107,6 +108,7 @@ public final class AgentService extends Service implements HttpServer.InfoProvid
         ambient = new AmbientController(this, store, picture);
         remoteFinder = new RemoteFinder(this, store);
         notifier = new Notifier(this);
+        dashboard = new com.braviafanboy.braviaagent.dashboard.DashboardController(this, store);
         display.setPanelListener(this::onPanelChanged);
         display.start();
         inputs.start();
@@ -118,6 +120,7 @@ public final class AgentService extends Service implements HttpServer.InfoProvid
         server.setAmbient(ambient);
         server.setRemoteFinder(remoteFinder);
         server.setNotifier(notifier);
+        server.setDashboard(dashboard);
         try {
             tls = Tls.load(this);
             server.start(tls.serverSocketFactory());
@@ -303,6 +306,7 @@ public final class AgentService extends Service implements HttpServer.InfoProvid
     private void onPanelChanged(boolean on) {
         if (on) resumeReaders(); else pauseReaders();
         if (ambient != null) ambient.onPanel(on);
+        if (dashboard != null) dashboard.onPanel(on);
     }
 
     private void resumeReaders() {
@@ -371,7 +375,7 @@ public final class AgentService extends Service implements HttpServer.InfoProvid
                 HttpServer.PICTURE_REFRESH_PATH, HttpServer.PICTURE_PATH, HttpServer.PICTURE_BATCH_PATH, HttpServer.PICTURE_CONFIG_PATH,
                 HttpServer.POWER_SAVING_PATH, HttpServer.REST_AUTH_PATH, HttpServer.REST_PSK_PATH,
                 HttpServer.REMOTE_FIND_PATH, HttpServer.NOTIFY_PATH, HttpServer.MEDIA_COMMAND_PATH,
-                HttpServer.AMBIENT_PATH)));
+                HttpServer.AMBIENT_PATH, HttpServer.DASHBOARD_PATH)));
         } catch (Exception ignored) {
         }
         return o;

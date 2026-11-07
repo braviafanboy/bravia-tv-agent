@@ -328,6 +328,50 @@ the overlay banner; `notification` = overlay not permitted, posted to the panel
 instead. The banner is suppressed on secure system screens (e.g. Settings),
 which hide non-system overlays.
 
+## Dashboards (`/v1/dashboard`)
+
+Shows a Home Assistant dashboard on the TV (added in 0.9.0). One at a time; a
+new one replaces the one showing.
+
+- `POST /v1/dashboard` body `{"url", "mode"?, "position"?, "size"?,
+  "duration_s"?, "kiosk"?, "token", "expires_in"}`. `url` is an absolute
+  `http(s)` Home Assistant URL (e.g. `http://192.168.1.5:8123/lovelace/0`); the
+  agent adds `external_auth=1`. `mode` is `full` (default: full screen,
+  interactive; the remote's arrows move between controls, OK presses, Back
+  steps back in the page history and then asks before closing) or `overlay` (view-only window over what is playing; the remote keeps
+  controlling the app behind). `position` (overlay only) is `full`, `left`,
+  `right` (default), `top_left`, `top_right`, `bottom_left` or `bottom_right`;
+  `size` is 20–100 (default 40): the width in percent of the screen for a side
+  panel, width and height for a corner. `duration_s` is the time on screen,
+  capped at 3600; omitted or 0 means until closed for `full` and 30 s for an
+  overlay (an overlay can't be dismissed with the remote). `kiosk` (default
+  true) puts the frontend in kiosk mode, which hides its sidebar and editing
+  controls (not the title bar). `token` and
+  `expires_in` (seconds) are a Home Assistant access token. Answers
+  `{"state": "shown" | "no_permission" | "failed"}`; `no_permission` = no
+  "Display over other apps" permission, which both modes need (Android lets a
+  background app start an activity only with it). 400 with `invalid_url`,
+  `invalid_mode`, `invalid_position`, `invalid_size` or `token_required`.
+- `POST /v1/dashboard/token` body `{"token", "expires_in"}`: a fresh token.
+- `DELETE /v1/dashboard`: close it.
+- `GET /v1/dashboard`: the `dashboard` state block.
+
+State block `dashboard`: `{"showing", "mode": "full" | "overlay" | null,
+"loaded", "token_needed"}`. `loaded` turns true once the frontend has rendered.
+`token_needed` turns true when the page asks for a token and the agent's is
+missing, expiring within a minute, or was rejected; the client answers with
+`POST /v1/dashboard/token` within 30 s, or the page's request fails.
+
+How the page signs in: the agent's WebView exposes the Home Assistant
+frontend's native-app interface (`window.externalApp`: `getExternalAuth`,
+`revokeExternalAuth`, `externalBus`), as the official Android app does. Tokens
+are held in memory only, never stored, and dropped when the dashboard closes.
+Main-frame navigation is locked to the URL's origin, the interface answers only
+while the page is on that origin, and replies go to the main frame only. The
+TV must be able to reach Home Assistant at `url` (an isolated IoT network needs
+a rule for it). A dashboard closes when the panel turns off, and the full-screen
+one also when another app comes forward.
+
 ## `POST /v1/media/command`
 
 Sends a transport command to the currently active media session (the one
