@@ -4,6 +4,13 @@ The release workflow copies the section matching the tag into `agent.json`,
 which Home Assistant shows as the update's release notes. Keep each section
 under a `## <version>` heading, newest first.
 
+## 0.9.1
+
+- Dashboards: the title bar can be hidden for a cleaner look. Overlays hide it
+  by default; full screen keeps it unless asked, since its tabs and back arrow
+  are how you move between views. Home Assistant's sidebar stays hidden on the
+  TV as before.
+
 ## 0.9.0
 
 - Dashboards on the TV: Home Assistant can show one of its dashboards full
