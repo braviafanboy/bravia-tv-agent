@@ -4,6 +4,22 @@ The release workflow copies the section matching the tag into `agent.json`,
 which Home Assistant shows as the update's release notes. Keep each section
 under a `## <version>` heading, newest first.
 
+## 0.7.1
+
+- Picture-profile restore support: bulk picture-setting write (POST
+  `/v1/picture/batch`) that applies many targets and reads them back, for fast,
+  validated restores of a saved calibration.
+- Local media transport (POST `/v1/media/command`): play/pause/stop/skip and
+  seek the active media session directly on the TV — lower latency than the
+  Sony cloud, with precise seeking. Answers `{"ok": false}` when the foreground
+  app publishes no controllable session so Home Assistant can fall back.
+- Now-playing accuracy: active sessions are re-queried so a session replaced by
+  a new one (e.g. YouTube starts a new session per video) can't linger as a
+  stale controller, and the reported position can no longer run past the
+  duration.
+- Diagnostic: `dumpsys activity service …/.AgentService media` dumps every
+  active session's metadata, playback state and timing.
+
 ## 0.6.0
 
 - On-screen notifications: Home Assistant can show a message on the TV screen,
