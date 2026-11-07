@@ -379,7 +379,8 @@ public final class HttpServer implements Server.Handler {
             try {
                 spec = com.braviafanboy.braviaagent.dashboard.DashboardSpec.parse(
                     body.optString("url", null), body.optString("mode", null), body.optString("position", null),
-                    body.optInt("size", 0), body.optInt("duration_s", 0), body.optBoolean("kiosk", true));
+                    body.optInt("size", 0), body.optInt("duration_s", 0),
+                    body.has("kiosk") ? Boolean.valueOf(body.optBoolean("kiosk")) : null);
             } catch (IllegalArgumentException e) {
                 return error(400, e.getMessage());
             }

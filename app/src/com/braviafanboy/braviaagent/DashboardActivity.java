@@ -56,10 +56,20 @@ public final class DashboardActivity extends Activity {
         web = DashboardWeb.create(this, controller, spec);
         web.setFocusable(true);
         web.setFocusableInTouchMode(true);
-        setContentView(web);
+        // In a frame, so the title bar can be moved up out of view (kiosk).
+        android.widget.FrameLayout frame = new android.widget.FrameLayout(this);
+        frame.setBackgroundColor(android.graphics.Color.BLACK);
+        frame.addView(web, new android.widget.FrameLayout.LayoutParams(
+            android.widget.FrameLayout.LayoutParams.MATCH_PARENT, android.widget.FrameLayout.LayoutParams.MATCH_PARENT));
+        setContentView(frame);
         hideSystemBars();
         web.requestFocus(View.FOCUS_DOWN);
         web.loadUrl(spec.url);
+    }
+
+    /** Kiosk: hide Home Assistant's title bar (called once the dashboard has loaded). */
+    public void hideTitleBar() {
+        if (web != null) DashboardWeb.hideTitleBar(web, null);
     }
 
     private void hideSystemBars() {

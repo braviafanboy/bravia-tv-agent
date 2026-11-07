@@ -344,9 +344,11 @@ new one replaces the one showing.
   `size` is 20–100 (default 40): the width in percent of the screen for a side
   panel, width and height for a corner. `duration_s` is the time on screen,
   capped at 3600; omitted or 0 means until closed for `full` and 30 s for an
-  overlay (an overlay can't be dismissed with the remote). `kiosk` (default
-  true) puts the frontend in kiosk mode, which hides its sidebar and editing
-  controls (not the title bar). `token` and
+  overlay (an overlay can't be dismissed with the remote). The frontend is
+  always put in kiosk mode, which hides its sidebar and editing controls.
+  `kiosk` also hides the dashboard's title bar (the agent measures where it
+  ends and moves the page up behind the frame's top edge; left visible if it
+  can't be found). Omitted: on for `overlay`, off for `full`. `token` and
   `expires_in` (seconds) are a Home Assistant access token. Answers
   `{"state": "shown" | "no_permission" | "failed"}`; `no_permission` = no
   "Display over other apps" permission, which both modes need (Android lets a

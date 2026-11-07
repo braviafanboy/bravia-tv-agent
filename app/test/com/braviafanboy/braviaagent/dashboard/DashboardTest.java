@@ -40,6 +40,11 @@ public final class DashboardTest {
         eq("http://ha:8123/x?a=1&external_auth=1#top", o.url, "query and fragment kept");
         eq(DashboardSpec.MAX_DURATION_S, DashboardSpec.parse("http://ha/", "overlay", "left", 50, 99999, true).durationS, "duration capped");
         eq("http://ha/?external_auth=1", DashboardSpec.parse("http://ha/?external_auth=1", null, null, 0, 0, true).url, "not doubled");
+        // Kiosk (title bar hidden) defaults by mode; an explicit choice wins.
+        eq(false, DashboardSpec.parse("http://ha/", "full", null, 0, 0, null).kiosk, "full screen keeps the title bar by default");
+        eq(true, DashboardSpec.parse("http://ha/", "overlay", null, 0, 0, null).kiosk, "overlay hides it by default");
+        eq(true, DashboardSpec.parse("http://ha/", "full", null, 0, 0, true).kiosk, "full screen on request");
+        eq(false, DashboardSpec.parse("http://ha/", "overlay", null, 0, 0, false).kiosk, "overlay off on request");
 
         refused("ftp://ha/", "full", "right", 40, "invalid_url");
         refused("http://ha/", "popup", "right", 40, "invalid_mode");

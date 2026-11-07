@@ -83,6 +83,50 @@ public final class DashboardWeb {
         return web;
     }
 
+    /**
+     * Where Home Assistant's dashboard title bar ends, in CSS px (0 if not
+     * found): the bottom of hui-root's ".header", found through the nested
+     * shadow roots. Only read, never changed, so a future frontend that moves
+     * things just means the bar stays visible.
+     */
+    private static final String MEASURE_HEADER_JS =
+        "(function(){function f(n,d){if(!n||d>16)return null;var a=n.querySelectorAll('*');"
+        + "for(var i=0;i<a.length;i++){var e=a[i];if(e.tagName==='HUI-ROOT')return e;"
+        + "if(e.shadowRoot){var r=f(e.shadowRoot,d+1);if(r)return r;}}return null}"
+        + "var h=f(document,0);if(!h||!h.shadowRoot)return 0;var x=h.shadowRoot.querySelector('.header');"
+        + "if(!x)return 0;var b=x.getBoundingClientRect();return (b.top<=1&&b.height>0)?b.bottom:0})()";
+
+    /**
+     * Hide the title bar by moving the page up behind the top edge of its
+     * frame by the bar's height (main thread; {@code done} runs either way).
+     * The WebView's parent must clip its children (FrameLayout does).
+     */
+    public static void hideTitleBar(WebView web, Runnable done) {
+        try {
+            web.evaluateJavascript(MEASURE_HEADER_JS, value -> {
+                try {
+                    float css = Float.parseFloat(value == null ? "0" : value.replace("\"", ""));
+                    int px = Math.round(css * web.getScale());
+                    android.view.View parent = (android.view.View) web.getParent();
+                    if (px > 0 && parent != null && parent.getHeight() > 0) {
+                        android.widget.FrameLayout.LayoutParams lp = new android.widget.FrameLayout.LayoutParams(
+                            android.widget.FrameLayout.LayoutParams.MATCH_PARENT, parent.getHeight() + px);
+                        lp.topMargin = -px;
+                        web.setLayoutParams(lp);
+                        Log.i(TAG, "dashboard: title bar hidden (" + px + " px)");
+                    } else {
+                        Log.i(TAG, "dashboard: title bar not found; left visible");
+                    }
+                } catch (Exception e) {
+                    Log.w(TAG, "dashboard: title bar measure failed: " + e);
+                }
+                if (done != null) done.run();
+            });
+        } catch (Exception e) {
+            if (done != null) done.run();
+        }
+    }
+
     /** The frontend's external-app interface (external_auth.ts / external_messaging.ts). */
     static final class Bridge {
         private final WebView web;
@@ -175,7 +219,10 @@ public final class DashboardWeb {
                 eval("window.externalBus(" + reply + ");");
             } else if (type.equals("frontend/loaded")) {
                 controller.onFrontendLoaded(spec);
-                if (spec.kiosk) sendCommand("kiosk_mode/set", "{\"enable\":true}");
+                // Always: Home Assistant's kiosk mode hides its sidebar (no
+                // wandering into Map, History, Settings on the TV) and editing
+                // controls. The "kiosk" option is about the title bar only.
+                sendCommand("kiosk_mode/set", "{\"enable\":true}");
             }
             // Everything else (connection-status, haptic, theme-update, ...) needs no reply.
         }

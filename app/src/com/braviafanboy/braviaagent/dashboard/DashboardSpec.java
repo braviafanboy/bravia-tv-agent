@@ -36,6 +36,7 @@ public final class DashboardSpec {
     public final int size;
     /** Seconds on screen; 0 = until closed (full screen only). */
     public final int durationS;
+    /** Hide Home Assistant's title bar. (Its sidebar and edit controls are always hidden.) */
     public final boolean kiosk;
 
     private DashboardSpec(String url, String origin, Mode mode, String position, int size, int durationS, boolean kiosk) {
@@ -52,9 +53,12 @@ public final class DashboardSpec {
      * Validate a request. {@code mode} is "full" (default) or "overlay";
      * {@code position}/{@code size} apply to overlays; a {@code durationS} of
      * 0 or less means the default (until closed for full screen, 30 s for an
-     * overlay). Throws IllegalArgumentException with a short error code.
+     * overlay). {@code kiosk} null means the mode's default: on for an overlay
+     * (view-only, the title bar is clutter), off for full screen (its tabs and
+     * back arrow are how you move around). Throws IllegalArgumentException
+     * with a short error code.
      */
-    public static DashboardSpec parse(String url, String mode, String position, int size, int durationS, boolean kiosk) {
+    public static DashboardSpec parse(String url, String mode, String position, int size, int durationS, Boolean kiosk) {
         String origin = originOf(url);
         if (origin == null) throw new IllegalArgumentException("invalid_url");
         Mode m;
@@ -66,7 +70,8 @@ public final class DashboardSpec {
         int sz = size <= 0 ? DEFAULT_SIZE : size;
         if (sz < MIN_SIZE || sz > MAX_SIZE) throw new IllegalArgumentException("invalid_size");
         int dur = durationS <= 0 ? (m == Mode.OVERLAY ? DEFAULT_OVERLAY_S : 0) : Math.min(durationS, MAX_DURATION_S);
-        return new DashboardSpec(withExternalAuth(url), origin, m, pos, sz, dur, kiosk);
+        boolean k = kiosk != null ? kiosk : m == Mode.OVERLAY;
+        return new DashboardSpec(withExternalAuth(url), origin, m, pos, sz, dur, k);
     }
 
     /** scheme://host[:port] of an http(s) URL, lower-cased; null if not a plain http(s) URL. */

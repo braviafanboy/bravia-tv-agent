@@ -177,7 +177,28 @@ public final class DashboardController {
             loaded = true;
         }
         publish();
-        main.postDelayed(this::reveal, REVEAL_SETTLE_MS);
+        main.postDelayed(() -> prepareReveal(spec), REVEAL_SETTLE_MS);
+    }
+
+    /** Let a re-layout after the title-bar crop paint before anything moves. */
+    private static final long CROP_SETTLE_MS = 250;
+
+    /**
+     * Main thread: hide the title bar if asked (while the overlay is still
+     * invisible, so its slide stays smooth), then reveal.
+     */
+    private void prepareReveal(DashboardSpec spec) {
+        if (revealed || current() != spec) return;
+        if (!spec.kiosk) {
+            reveal();
+            return;
+        }
+        if (overlayWeb != null) {
+            DashboardWeb.hideTitleBar(overlayWeb, () -> main.postDelayed(this::reveal, CROP_SETTLE_MS));
+        } else {
+            if (activity != null) activity.hideTitleBar();
+            reveal();
+        }
     }
 
     /** Main thread: fade the overlay in and start the time on screen (once per dashboard). */
