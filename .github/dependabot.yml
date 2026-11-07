@@ -1,0 +1,9 @@
+version: 2
+updates:
+  # Keep the workflows' actions current (deprecated runtimes show up as PRs).
+  # Dependabot's own commits fail the CI author check, so each update is
+  # re-applied as a braviafanboy commit and the PR closed.
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly
