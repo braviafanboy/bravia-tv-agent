@@ -502,15 +502,17 @@ public final class StatusActivity extends Activity {
             // that is not Home Assistant's should be plain to see here.
             Pairing pairing = svc.pairing();
             PairingState.Request asking = pairing.pending();
-            String request = asking == null ? "" : " · pairing requested by " + who(asking.name, asking.peer);
-            if (!pairing.isPaired()) {
-                row("Home Assistant", "Not paired" + request, asking == null ? BAD_COLOR : TODO_COLOR);
+            if (asking != null) {
+                // The news while it lasts; on its own, so the line stays short.
+                row("Home Assistant", "Pairing requested by " + who(asking.name, asking.peer), TODO_COLOR);
+            } else if (!pairing.isPaired()) {
+                row("Home Assistant", "Not paired", BAD_COLOR);
             } else {
                 String paired = who(pairing.pairedName(), pairing.pairedPeer());
                 if (svc.store().hasListeners()) {
-                    row("Home Assistant", "Connected: " + paired + request, OK_COLOR);
+                    row("Home Assistant", "Connected: " + paired, OK_COLOR);
                 } else {
-                    row("Home Assistant", "Paired with " + paired + ", waiting for it to connect" + request, TODO_COLOR);
+                    row("Home Assistant", "Paired with " + paired + ", waiting for it to connect", TODO_COLOR);
                 }
             }
         }
@@ -566,6 +568,10 @@ public final class StatusActivity extends Activity {
         TextView k = label(name, 20, Color.WHITE);
         k.setLayoutParams(new LinearLayout.LayoutParams(dp(260), LinearLayout.LayoutParams.WRAP_CONTENT));
         TextView v = label(value, 20, color);
+        // One line whatever a client called itself: a value that wrapped
+        // would push the rows below it off the screen.
+        v.setSingleLine(true);
+        v.setEllipsize(android.text.TextUtils.TruncateAt.END);
         line.addView(k);
         line.addView(v);
         rows.addView(line);
