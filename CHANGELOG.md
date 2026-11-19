@@ -42,6 +42,10 @@ pair with this agent.
 - Switching ambient brightness off gives the picture mode its brightness
   back: the value it had when you switched it on, unless you have changed it
   by hand since.
+- Fix: ambient brightness could write a few steps into a picture mode's HDR
+  brightness, or into another picture mode, when an HDR clip started or the
+  mode changed while it was adjusting. It now asks the TV again immediately
+  before every change.
 - Fix: ambient brightness stayed paused in SDR when Home Assistant had gone
   away during HDR; it now falls back on its own reading after two minutes.
 - Fix: a dashboard whose page crashed, or ran out of memory, took the whole
