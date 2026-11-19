@@ -8,8 +8,10 @@ public final class AmbientTest {
 
     public static void main(String[] args) {
         curve();
+        learning();
         floor();
         decider();
+        hint();
         System.out.println("ok: " + passed + " ambient checks passed");
     }
 
@@ -49,6 +51,91 @@ public final class AmbientTest {
         AmbientCurve dim = c.learn(500, 15);
         eq(15, dim.target(500), "dimmer choice in a bright room");
         check(Arrays.stream(dim.values()).max().getAsInt() == 15, "anchors above the choice are lowered " + dim);
+    }
+
+    /**
+     * With learning on, a brightness set by hand is learnt and the loop
+     * resumes at once. It must then leave that brightness alone for as long as
+     * the room light stays the same: every light level, every choice, on the
+     * curve a fresh install starts from and on two others. (It used to walk
+     * the slider back, by up to 31 steps, in about a third of these cases.)
+     */
+    private static void learning() {
+        int[][] bases = {
+            AmbientCurve.fromCurrent(25).values(),
+            AmbientCurve.fromCurrent(50).values(),
+            {10, 12, 18, 25, 40, 50},
+        };
+        for (int[] base : bases) {
+            AmbientCurve before = new AmbientCurve(base);
+            int moved = 0;
+            String first = null;
+            for (int lux = 0; lux <= 500; lux++) {
+                for (int chosen = 0; chosen <= 50; chosen++) {
+                    AmbientCurve learnt = before.learn(lux, chosen);
+                    int end = resume(learnt, lux, chosen);
+                    if (end != chosen) {
+                        moved++;
+                        if (first == null) first = "at " + lux + " lux the viewer set " + chosen + ", learnt " + learnt + ", loop moved it to " + end;
+                    }
+                    int[] v = learnt.values();
+                    for (int i = 1; i < v.length; i++) {
+                        if (v[i] < v[i - 1]) {
+                            System.err.println("FAIL: learnt curve falls: " + learnt + " (" + lux + " lux, " + chosen + ")");
+                            System.exit(1);
+                        }
+                    }
+                }
+            }
+            check(moved == 0, "after learning, the loop leaves the viewer's value alone on " + before
+                + " (" + moved + " cases moved; first: " + first + ")");
+        }
+        // The case from the report: a dark room, the viewer turns it up.
+        AmbientCurve learnt = AmbientCurve.fromCurrent(25).learn(1, 20);
+        eq(20, learnt.target(1), "the curve passes through what the viewer chose");
+    }
+
+    /** The loop as AmbientController runs it after learning, for a minute in steady light; the slider's last value. */
+    private static int resume(AmbientCurve curve, double lux, int chosen) {
+        AmbientDecider d = new AmbientDecider();
+        int lastWritten = chosen;
+        long t = 1_000_000;
+        for (int tick = 0; tick < 60; tick++, t += 1000) {
+            d.update(t, lux);
+            int next = d.step(t, lastWritten, curve.target(d.decidedLux()));
+            if (next >= 0) lastWritten = next;
+        }
+        return lastWritten;
+    }
+
+    /** Home Assistant's word on HDR counts while Home Assistant is there. */
+    private static void hint() {
+        SignalHint h = new SignalHint();
+        check(!h.hdr() && h.value() == null, "no hint, no HDR");
+        long t = 1_000_000;
+        h.set("HDR10", t);
+        check(h.hdr(), "an HDR hint pauses the loop");
+        eq("hdr10", h.value(), "lower case");
+        // Home Assistant connected: the hint holds for as long as it likes.
+        for (int i = 0; i < 3600; i++) h.presence(true, t += 1000);
+        check(h.hdr(), "it holds while a client is connected");
+        // Home Assistant goes away: a short break changes nothing...
+        t += SignalHint.GRACE_MS;
+        h.presence(false, t);
+        check(h.hdr(), "and through a reconnect");
+        // ...a longer one drops it, so SDR is not left paused for good.
+        h.presence(false, t + 1);
+        check(!h.hdr() && h.value() == null, "but not once the client has been gone a while");
+        h.presence(true, t + 5000);
+        check(!h.hdr(), "a client coming back does not bring it back; it sends a new one");
+        h.set("sdr", t + 6000);
+        check(!h.hdr(), "sdr is not HDR");
+        eq("sdr", h.value(), "but it is a hint");
+        h.set("", t + 7000);
+        check(h.value() == null, "an empty hint clears it");
+        h.set("dolby_vision", t + 8000);
+        h.presence(false, t + 8000 + SignalHint.GRACE_MS + 1);
+        check(!h.hdr(), "set while nobody is connected, it lapses the same way");
     }
 
     private static void floor() {

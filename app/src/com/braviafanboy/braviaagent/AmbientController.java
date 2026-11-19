@@ -14,6 +14,7 @@ import android.util.Log;
 import com.braviafanboy.braviaagent.ambient.AmbientCurve;
 import com.braviafanboy.braviaagent.ambient.AmbientDecider;
 import com.braviafanboy.braviaagent.ambient.LuxFloor;
+import com.braviafanboy.braviaagent.ambient.SignalHint;
 import com.braviafanboy.braviaagent.readers.PictureReader;
 
 import org.json.JSONArray;
@@ -55,6 +56,7 @@ public final class AmbientController implements SensorEventListener {
     private static final long TICK_MS = 1000;
     private static final long CONTEXT_EVERY_MS = 5000;
     private static final long MANUAL_SETTLE_MS = 5000;  // settle before learning or switching off
+    private static final long WRITE_RETRY_MS = 10000;  // after the TV refused a write
     private static final int SAMPLING_US = 200_000;  // 5 Hz while active
     private static final List<String> CONTEXT_TARGETS = Arrays.asList(
         "brightness", "pictureMode", "sensorAutoAdjustment", "autoLuminanceLevel", "hdrToneMapping");
@@ -83,7 +85,7 @@ public final class AmbientController implements SensorEventListener {
     private AmbientCurve defaultCurve;
     private final Map<String, AmbientCurve> modeCurves = new LinkedHashMap<>();
     private boolean panelOn;
-    private String signalHint;
+    private final SignalHint signal = new SignalHint();
     private ScheduledFuture<?> ticking;
     private boolean listening;
 
@@ -92,6 +94,7 @@ public final class AmbientController implements SensorEventListener {
     private JSONObject context;
     private String mode;
     private int lastWritten = -1;
+    private long holdWritesUntil;
     private int manualCandidate = -1;
     private long manualSince;
     private String state = "off";
@@ -125,12 +128,19 @@ public final class AmbientController implements SensorEventListener {
         boolean run = enabled && panelOn && light != null;
         if (run && ticking == null) {
             ticking = exec.scheduleWithFixedDelay(this::safeTick, 0, TICK_MS, TimeUnit.MILLISECONDS);
-        } else if (!run && ticking != null) {
-            ticking.cancel(false);
-            ticking = null;
+        } else if (!run) {
+            if (ticking != null) {
+                ticking.cancel(false);
+                ticking = null;
+            }
+            // Say why it is not running, also when it never was (a TV
+            // without a light sensor used to report a bare "off").
+            final boolean on = enabled, sensor = light != null;
             exec.execute(() -> {
                 resetLoop();
-                setState(enabled ? "paused" : "off", enabled ? (light == null ? "no_light_sensor" : "screen_off") : null);
+                if (!on) setState("off", null);
+                else if (!sensor) setState("unavailable", "no_light_sensor");
+                else setState("paused", "screen_off");
             });
         }
         boolean listen = run;
@@ -145,7 +155,6 @@ public final class AmbientController implements SensorEventListener {
                 }
             });
         }
-        if (!run && ticking == null) exec.execute(this::publish);
     }
 
     // ---- settings from Home Assistant ----------------------------------------
@@ -183,25 +192,33 @@ public final class AmbientController implements SensorEventListener {
 
     /** Replace all curves: {"default": [6], "modes": {"<picture mode>": [6], ...}}. */
     public synchronized void setCurves(JSONObject curves) {
+        // Read all of it before changing anything: one bad curve must not
+        // leave the others half replaced.
         JSONArray d = curves.optJSONArray("default");
-        if (d != null) defaultCurve = new AmbientCurve(ints(d));
+        AmbientCurve newDefault = d == null ? null : new AmbientCurve(ints(d));
+        Map<String, AmbientCurve> newModes = null;
         JSONObject modes = curves.optJSONObject("modes");
         if (modes != null) {
-            modeCurves.clear();
+            newModes = new LinkedHashMap<>();
             Iterator<String> it = modes.keys();
             while (it.hasNext()) {
                 String k = it.next();
                 JSONArray a = modes.optJSONArray(k);
-                if (a != null) modeCurves.put(k, new AmbientCurve(ints(a)));
+                if (a != null) newModes.put(k, new AmbientCurve(ints(a)));
             }
+        }
+        if (newDefault != null) defaultCurve = newDefault;
+        if (newModes != null) {
+            modeCurves.clear();
+            modeCurves.putAll(newModes);
         }
         save();
         exec.execute(this::publish);
     }
 
     /** The video signal class from Home Assistant ("sdr", "hdr10", "dolby_vision", ...). */
-    public synchronized void setSignal(String signal) {
-        signalHint = signal == null || signal.isEmpty() ? null : signal.toLowerCase(java.util.Locale.ROOT);
+    public void setSignal(String hint) {
+        signal.set(hint, SystemClock.elapsedRealtime());
     }
 
     // ---- the loop -----------------------------------------------------------
@@ -233,7 +250,11 @@ public final class AmbientController implements SensorEventListener {
         double l = latestLux;
         if (Double.isNaN(l)) l = knownLux();
         if (!Double.isNaN(l)) floor.add(now, l);
-        if (context == null || now - lastContextMs >= CONTEXT_EVERY_MS) {
+        // Home Assistant's word on HDR counts only while it is there.
+        signal.presence(store.hasListeners(), now);
+        // Also when the last read failed: an unreachable TV is asked again at
+        // this pace, not every second.
+        if (now - lastContextMs >= CONTEXT_EVERY_MS) {
             context = picture.readTargetsNow(CONTEXT_TARGETS);
             lastContextMs = now;
             if (context != null) onFreshContext(now);
@@ -260,7 +281,7 @@ public final class AmbientController implements SensorEventListener {
         AmbientCurve c = curveFor(mode);
         target = c.target(decider.decidedLux());
         int next = decider.step(now, lastWritten, target);
-        if (next >= 0) {
+        if (next >= 0 && now >= holdWritesUntil) {
             // Before nudging the slider, confirm it is still where we left it.
             // Brightness is only read into `context` every 5 s, but we write up
             // to once a second, so a hand change between polls would otherwise be
@@ -280,7 +301,10 @@ public final class AmbientController implements SensorEventListener {
                 lastWritten = next;
             } catch (PictureReader.WriteException e) {
                 Log.w(TAG, "ambient: brightness write refused: " + e.code);
-                context = null;  // re-read before trying again
+                // Read afresh, and leave the slider alone for a while rather
+                // than asking the TV again every second.
+                lastContextMs = 0;
+                holdWritesUntil = now + WRITE_RETRY_MS;
             }
         }
         setState("active", null);
@@ -358,10 +382,7 @@ public final class AmbientController implements SensorEventListener {
         if (context == null || !picture.isAvailable()) return "ip_control_unreachable";
         if (!picture.writeAuthorized()) return "no_key";
         if ("on".equals(value("sensorAutoAdjustment")) && "on".equals(value("autoLuminanceLevel"))) return "tv_auto_luminance";
-        String hint;
-        synchronized (this) { hint = signalHint; }
-        boolean hdr = (hint != null && !hint.equals("sdr")) || available("hdrToneMapping");
-        if (hdr) return "hdr";
+        if (signal.hdr() || available("hdrToneMapping")) return "hdr";
         if (intValue("brightness") < 0 || mode == null) return "ip_control_unreachable";
         return null;
     }
@@ -369,6 +390,7 @@ public final class AmbientController implements SensorEventListener {
     private void resetLoop() {
         decider.reset();
         lastWritten = -1;
+        holdWritesUntil = 0;
         manualCandidate = -1;
         target = -1;
     }

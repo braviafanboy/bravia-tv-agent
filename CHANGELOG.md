@@ -2,7 +2,50 @@
 
 The release workflow copies the section matching the tag into `agent.json`,
 which Home Assistant shows as the update's release notes. Keep each section
-under a `## <version>` heading, newest first.
+under a `## <version>` heading, newest first. Changes that are not released
+yet go under `## Unreleased`: rename that heading to the version when it is
+released (the workflow refuses a tag that has no section of its own).
+
+## Unreleased
+
+Needs version 0.10.0 or later of the integration: an older integration cannot
+pair with this agent.
+
+- Until it is paired, the agent now answers nothing but its basic info and a
+  request to pair. Before, an unpaired agent answered every request from
+  anything on the network.
+- Pairing is allowed by you, at the TV. Home Assistant shows a six-digit
+  code and opens the agent, which asks whether to allow the pairing, names the
+  device that asked and shows its own code; allow it with the remote if the
+  two are the same. The agent's screen also shows who is paired. Before,
+  opening the agent started a minute in which the first device to ask got the
+  pairing, and any app on the TV could start that minute.
+- Updates: the update screen can no longer be started, or pointed at another
+  address, by other apps on the TV. An update needs an https address, a
+  checksum and a version; it is limited in size; and one that fails or is
+  declined no longer stays staged, where it used to take over every later
+  launch (pairing included).
+- Fix: on Android 12 the agent stopped whenever the remote connected or
+  disconnected, and could not finish an update.
+- Fix: with learning on, ambient brightness partly undid a brightness you had
+  just set by hand (in a dark room, by as much as two thirds of the change).
+- Fix: ambient brightness stayed paused in SDR when Home Assistant had gone
+  away during HDR; it now falls back on its own reading after two minutes.
+- Fix: a dashboard whose page crashed, or ran out of memory, took the whole
+  agent down with it. The dashboard now closes and the agent carries on.
+- One device can no longer take up all of the agent's connections and keep
+  Home Assistant out.
+- Dashboards: the sign-in token is handed to the page only while it is still
+  on the Home Assistant address, and only the Home Assistant page can end the
+  session.
+- The setup flow also asks for the notification permission (Android 13 and
+  later), which the fallback for on-screen messages needs.
+- A TV with a long device name is recognised: such a TV announces only the
+  beginning of its id.
+- Smaller fixes: a TV without a light sensor says so instead of reporting
+  ambient brightness as off; a bad set of curves leaves the stored ones
+  untouched; a second Find remote within two minutes is no longer cut short;
+  a dashboard that failed to open cannot appear later.
 
 ## 0.9.1
 

@@ -21,7 +21,9 @@ public final class HttpTest {
 
     public static void main(String[] args) throws Exception {
         parser();
+        limiter();
         server();
+        limits();
         System.out.println("ok: " + passed + " checks passed");
     }
 
@@ -93,6 +95,80 @@ public final class HttpTest {
 
     private static InputStream in(String s) {
         return new ByteArrayInputStream(s.getBytes(StandardCharsets.ISO_8859_1));
+    }
+
+    // ---- connection limits ----------------------------------------------
+
+    /** One client cannot take every place. */
+    private static void limiter() {
+        ConnectionLimiter l = new ConnectionLimiter(6, 2);
+        eq(true, l.tryAcquire("a") && l.tryAcquire("a"), "a client gets its share");
+        eq(false, l.tryAcquire("a"), "and no more than its share");
+        eq(true, l.tryAcquire("b"), "while another client still gets in");
+        l.release("a");
+        eq(true, l.tryAcquire("a"), "a place given back can be taken again");
+        eq(true, l.tryAcquire("b") && l.tryAcquire("c") && l.tryAcquire("c"), "up to the total");
+        eq(6, l.open(), "six are open");
+        eq(false, l.tryAcquire("d"), "the total holds for a client that has none");
+        l.release("nobody");
+        eq(6, l.open(), "giving back what was never taken changes nothing");
+        for (String who : new String[] {"a", "a", "b", "b", "c", "c"}) l.release(who);
+        eq(0, l.open(), "all given back");
+        eq(true, l.tryAcquire("d"), "and free again");
+        ConnectionLimiter small = new ConnectionLimiter(2, 5);
+        eq(true, small.tryAcquire("a") && small.tryAcquire("a"), "a share is never more than the total");
+        eq(false, small.tryAcquire("a"), "the total");
+    }
+
+    /**
+     * What a client without credentials can hold: a share of the connections,
+     * for a short while. The handler here answers 401 (marked to close) unless
+     * the request carries the token, as the agent's does.
+     */
+    private static void limits() throws Exception {
+        Server server = new Server(ServerSocketFactory.getDefault(), 0, req ->
+            "Bearer t".equals(req.header("authorization"))
+                ? HttpResponse.text(200, "application/json", "{}")
+                : HttpResponse.text(401, "application/json", "{\"error\":\"unauthorized\"}").closing(),
+            4, 2, null, null);
+        int port = server.start();
+        try {
+            // Without the token: answered, and the connection is closed
+            // whatever the client asked for.
+            String r = exchange(port, "GET /v1/state HTTP/1.1\r\nHost: t\r\n\r\n");
+            contains(r, "HTTP/1.1 401", "no token, no answer");
+            contains(r, "Connection: close", "and no kept-alive connection");
+            // With it: kept alive as before.
+            try (Socket s = new Socket("127.0.0.1", port)) {
+                OutputStream o = s.getOutputStream();
+                for (int n = 0; n < 2; n++) {
+                    o.write("GET /v1/state HTTP/1.1\r\nHost: t\r\nAuthorization: Bearer t\r\n\r\n".getBytes(StandardCharsets.US_ASCII));
+                    contains(readResponse(s.getInputStream()), "Connection: keep-alive", "token holder keeps its connection " + n);
+                }
+            }
+            // One address holds two of the four places and gets no third.
+            List<Socket> held = new ArrayList<>();
+            for (int n = 0; n < 2; n++) held.add(new Socket("127.0.0.1", port));
+            Thread.sleep(300);
+            try (Socket extra = new Socket("127.0.0.1", port)) {
+                extra.setSoTimeout(3000);
+                eq(-1, extra.getInputStream().read(), "a third connection from the same address is closed");
+            }
+            // A connection that sends nothing is dropped well before the idle
+            // timeout a kept-alive connection gets.
+            long t0 = System.nanoTime();
+            Socket silent = held.get(0);
+            silent.setSoTimeout(Server.FIRST_REQUEST_TIMEOUT_MS + 4000);
+            eq(-1, silent.getInputStream().read(), "a silent connection is closed");
+            long ms = (System.nanoTime() - t0) / 1_000_000L;
+            eq(true, ms < Server.IDLE_TIMEOUT_MS - 5000, "soon (" + ms + " ms)");
+            for (Socket h : held) h.close();
+            Thread.sleep(300);
+            contains(exchange(port, "GET /x HTTP/1.1\r\nHost: t\r\nAuthorization: Bearer t\r\nConnection: close\r\n\r\n"),
+                "200 OK", "the places come back");
+        } finally {
+            server.stop();
+        }
     }
 
     // ---- server --------------------------------------------------------

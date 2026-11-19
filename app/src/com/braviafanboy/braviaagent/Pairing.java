@@ -5,127 +5,152 @@ import android.content.SharedPreferences;
 import android.os.SystemClock;
 import android.util.Log;
 
+import com.braviafanboy.braviaagent.core.PairingState;
+
 import java.security.SecureRandom;
 
 /**
- * Bearer-token pairing. Unpaired, the agent answers everyone on the LAN (like
- * the TV's own REST port). Once a token exists every request except /v1/info
- * and POST /v1/pair must carry {@code Authorization: Bearer <token>}.
+ * The agent's pairing with Home Assistant, kept in app-private storage.
  *
- * A token is obtained only through the pairing window (opened when the
- * TV's own control service launched the status screen, i.e. the
- * integration's local launch) with {@code POST /v1/pair}. Tokens delivered
- * by deep link are no longer accepted. Pairing again replaces the token.
+ * <p>Every request except /v1/info and POST /v1/pair must carry
+ * {@code Authorization: Bearer <token>}, paired or not: an agent nobody has
+ * paired with answers nothing else. A client gets the token by asking for it
+ * with POST /v1/pair; the viewer then allows it on the agent's screen, after
+ * comparing the code shown there with the one the client shows. See
+ * {@link PairingState} for the rules. Tokens delivered by deep link are not
+ * accepted. Pairing again replaces the token.
+ *
+ * <p>This class adds Android's clock and storage to {@link PairingState} and
+ * tells the service when the token changed.
  */
 public final class Pairing {
     private static final String TAG = "BraviaAgent";
     private static final String PREFS = "pairing";
     private static final String KEY_TOKEN = "token";
     private static final String KEY_NAME = "name";
+    private static final String KEY_PEER = "peer";
     private static final String KEY_AT = "paired_at";
-    public static final long WINDOW_MS = 60000;
 
     public interface Listener {
-        /** {@code tokenChanged}: paired, re-paired or cleared (not just the window opening or closing). */
+        /** {@code tokenChanged}: paired, re-paired or cleared. */
         void onPairingChanged(boolean tokenChanged);
     }
 
-    private final SharedPreferences prefs;
-    private volatile String token;
-    private volatile long windowUntil;
-    private Listener listener;
+    private final PairingState state;
+    private volatile Listener listener;
 
     public Pairing(Context context) {
-        prefs = context.getSharedPreferences(PREFS, Context.MODE_PRIVATE);
-        token = prefs.getString(KEY_TOKEN, null);
+        final SharedPreferences prefs = context.getSharedPreferences(PREFS, Context.MODE_PRIVATE);
+        state = new PairingState(new PairingState.Clock() {
+            @Override public long elapsedMs() {
+                return SystemClock.elapsedRealtime();
+            }
+
+            @Override public long wallMs() {
+                return System.currentTimeMillis();
+            }
+        }, new PairingState.Storage() {
+            @Override public PairingState.Paired load() {
+                String token = prefs.getString(KEY_TOKEN, null);
+                if (token == null) return null;
+                return new PairingState.Paired(token, prefs.getString(KEY_NAME, ""),
+                    prefs.getString(KEY_PEER, null), prefs.getLong(KEY_AT, 0));
+            }
+
+            @Override public void save(PairingState.Paired p) {
+                prefs.edit().putString(KEY_TOKEN, p.token).putString(KEY_NAME, p.name)
+                    .putString(KEY_PEER, p.peer).putLong(KEY_AT, p.atMs).apply();
+            }
+
+            @Override public void clear() {
+                prefs.edit().clear().apply();
+            }
+        }, new SecureRandom());
     }
 
     public void setListener(Listener l) {
         listener = l;
     }
 
+    /** The SHA-256 of the certificate the agent serves, which pairing codes are tied to. */
+    public void setCertificate(String fingerprintHex) {
+        state.setCertificate(fingerprintHex);
+    }
+
     public boolean isPaired() {
-        return token != null;
+        return state.isPaired();
     }
 
+    /** What the paired client called itself, or null. */
     public String pairedName() {
-        return prefs.getString(KEY_NAME, null);
+        PairingState.Paired p = state.paired();
+        return p == null ? null : p.name;
     }
 
-    public long pairedAt() {
-        return prefs.getLong(KEY_AT, 0);
+    /** The address the paired client paired from, or null (also for pairings made before it was recorded). */
+    public String pairedPeer() {
+        PairingState.Paired p = state.paired();
+        return p == null ? null : p.peer;
     }
 
-    public boolean windowOpen() {
-        return SystemClock.elapsedRealtime() < windowUntil;
-    }
-
-    public long windowSecondsLeft() {
-        long left = windowUntil - SystemClock.elapsedRealtime();
-        return left > 0 ? (left + 999) / 1000 : 0;
-    }
-
-    public void openWindow() {
-        windowUntil = SystemClock.elapsedRealtime() + WINDOW_MS;
-        Log.i(TAG, "pairing window open for " + (WINDOW_MS / 1000) + " s");
-        notifyChanged(false);
-    }
-
-    public void closeWindow() {
-        windowUntil = 0;
-        notifyChanged(false);
-    }
-
-    /** POST /v1/pair during the window: mint and store a new token. */
-    public synchronized String pair(String name) {
-        if (!windowOpen()) return null;
-        byte[] b = new byte[32];
-        new SecureRandom().nextBytes(b);
-        StringBuilder sb = new StringBuilder();
-        for (byte x : b) sb.append(String.format("%02x", x));
-        store(sb.toString(), name);
-        windowUntil = 0;
-        return token;
-    }
-
-    public synchronized void clear() {
-        token = null;
-        prefs.edit().clear().apply();
-        Log.i(TAG, "pairing cleared");
-        notifyChanged(true);
-    }
-
-    /**
-     * Unpaired, requests without credentials are allowed (nothing to check
-     * against) but a presented token is refused: a client that believes it is
-     * paired must learn that it is not, instead of being silently accepted.
-     */
     public boolean authorized(String authorizationHeader) {
-        String t = token;
-        if (t == null) return authorizationHeader == null;
-        if (authorizationHeader == null) return false;
-        String h = authorizationHeader.trim();
-        if (!h.regionMatches(true, 0, "Bearer ", 0, 7)) return false;
-        return constantTimeEquals(h.substring(7).trim(), t);
+        return state.authorized(authorizationHeader);
     }
 
-    private void store(String newToken, String name) {
-        token = newToken;
-        prefs.edit().putString(KEY_TOKEN, newToken).putString(KEY_NAME, name == null ? "" : name)
-            .putLong(KEY_AT, System.currentTimeMillis()).apply();
-        Log.i(TAG, "paired with " + name);
+    /** The request that is waiting, or null. */
+    public PairingState.Request pending() {
+        return state.pending();
+    }
+
+    /** POST /v1/pair?name=…&commit=…: a client asks to pair. Nothing is shown on the TV. */
+    public PairingState.Reply request(String name, String peer, String commit) {
+        PairingState.Reply r = state.request(name, peer, commit);
+        if (r.request != null) Log.i(TAG, "pairing requested from " + peer);
+        return r;
+    }
+
+    /** POST /v1/pair?request=<id>&reveal=…: the client reveals its secret, which gives the request its code. */
+    public PairingState.Reply reveal(String requestId, String secret) {
+        return state.reveal(requestId, secret);
+    }
+
+    /** The request is on screen; false when it is gone. */
+    public boolean shown(String requestId) {
+        return state.shown(requestId);
+    }
+
+    /** The viewer allowed the request; null when it is gone. */
+    public PairingState.Request accept(String requestId) {
+        PairingState.Request r = state.accept(requestId);
+        if (r != null) Log.i(TAG, "pairing request from " + r.peer + " allowed on the TV");
+        return r;
+    }
+
+    /** The viewer denied the request; null when it is gone. */
+    public PairingState.Request deny(String requestId) {
+        PairingState.Request r = state.deny(requestId);
+        if (r != null) Log.i(TAG, "pairing request from " + r.peer + " denied on the TV");
+        return r;
+    }
+
+    /** POST /v1/pair?request=<id>: the client that asked collects its token. */
+    public PairingState.Reply collect(String requestId) {
+        PairingState.Reply r = state.collect(requestId);
+        if (r.token != null) {
+            Log.i(TAG, "paired with " + pairedName() + " at " + pairedPeer());
+            notifyChanged(true);
+        }
+        return r;
+    }
+
+    public void clear() {
+        state.clear();
+        Log.i(TAG, "pairing cleared");
         notifyChanged(true);
     }
 
     private void notifyChanged(boolean tokenChanged) {
         Listener l = listener;
         if (l != null) l.onPairingChanged(tokenChanged);
-    }
-
-    private static boolean constantTimeEquals(String a, String b) {
-        if (a.length() != b.length()) return false;
-        int r = 0;
-        for (int i = 0; i < a.length(); i++) r |= a.charAt(i) ^ b.charAt(i);
-        return r == 0;
     }
 }

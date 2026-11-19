@@ -49,6 +49,8 @@ public final class RestClient {
 
     /** Why a call failed. */
     public static final class RestException extends Exception {
+        private static final long serialVersionUID = 1L;
+
         public enum Kind { UNAVAILABLE, AUTH_REQUIRED, RPC_ERROR }
         public final Kind kind;
         public final int code;

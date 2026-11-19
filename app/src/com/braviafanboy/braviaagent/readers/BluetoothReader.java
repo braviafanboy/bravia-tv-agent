@@ -116,7 +116,14 @@ public final class BluetoothReader extends BroadcastReceiver {
             f.addAction(BluetoothDevice.ACTION_ACL_DISCONNECTED);
             f.addAction(BluetoothDevice.ACTION_BOND_STATE_CHANGED);
             f.addAction(BluetoothAdapter.ACTION_STATE_CHANGED);
-            context.registerReceiver(this, f);
+            try {
+                // No export flag: these are the system's broadcasts. Android 14
+                // refuses a flagless registration if it does not regard an
+                // action as the system's own, and that must not end the app.
+                context.registerReceiver(this, f);
+            } catch (RuntimeException e) {
+                Log.w(TAG, "bluetooth broadcasts: " + e);
+            }
             registered = true;
             BluetoothProfile.ServiceListener sl = new BluetoothProfile.ServiceListener() {
                 @Override public void onServiceConnected(int profile, BluetoothProfile proxy) {
@@ -142,7 +149,8 @@ public final class BluetoothReader extends BroadcastReceiver {
     @Override
     public void onReceive(Context c, Intent intent) {
         String action = intent.getAction();
-        BluetoothDevice d = intent.getParcelableExtra(BluetoothDevice.EXTRA_DEVICE, BluetoothDevice.class);
+        BluetoothDevice d = com.braviafanboy.braviaagent.Compat.parcelableExtra(
+            intent, BluetoothDevice.EXTRA_DEVICE, BluetoothDevice.class);
         if (d != null && ACTION_BATTERY.equals(action)) {
             int lvl = intent.getIntExtra(EXTRA_BATTERY, -1);
             if (lvl >= 0) battery.put(d.getAddress(), lvl);
@@ -248,6 +256,18 @@ public final class BluetoothReader extends BroadcastReceiver {
         @Override public void onCharacteristicRead(BluetoothGatt g, BluetoothGattCharacteristic c, byte[] value, int status) {
             if (status == BluetoothGatt.GATT_SUCCESS) onLevel(g, value);
             handler.post(this::done);
+        }
+        // Android 12 calls the older forms of these two, without the value;
+        // without them the read never came back and the link stayed open.
+        @SuppressWarnings("deprecation")
+        @Override public void onCharacteristicRead(BluetoothGatt g, BluetoothGattCharacteristic c, int status) {
+            if (android.os.Build.VERSION.SDK_INT >= 33) return;
+            if (status == BluetoothGatt.GATT_SUCCESS) onLevel(g, c.getValue());
+            handler.post(this::done);
+        }
+        @SuppressWarnings("deprecation")
+        @Override public void onCharacteristicChanged(BluetoothGatt g, BluetoothGattCharacteristic c) {
+            if (android.os.Build.VERSION.SDK_INT < 33) onLevel(g, c.getValue());
         }
         private void done() {
             closeGatt();

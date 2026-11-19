@@ -1,5 +1,12 @@
 # Agent plan
 
+**This is the project's design history, not a description of the app.** It
+records what was measured on the TV, what was proposed and what was tried
+and ruled out, in the order it happened, and it has not been kept in step
+with later releases: goals, endpoints and pairing described here have since
+changed or gone. For the app as it is, see the [README](../README.md),
+[`contract.md`](contract.md) and [`development.md`](development.md).
+
 Written 2026-11-02 from the research behind bravia-tv-grpc-homeassistant
 v0.2.0. Everything in "Sources" was probed on a live BRAVIA 8 II; everything
 in "Design" is a proposal.
@@ -53,8 +60,8 @@ written it), `braviasync.cec` / `.autodevicesoff` / `.autotvon` /
 `tv_speakers` while the soundbar was the active output, so it is a stored
 preference, not the live route — do not surface it as such. No key is
 writable from a normal app (the write permission is signature-level; see
-Open questions). Full dump in the research
-repo.
+Open questions). The full dump is kept with the project's research notes,
+which are not public.
 
 Manifest requirements learned from the probe: `uses-permission` for
 `com.sony.dtv.settingsprovider.permission.READ_SETTINGS`, and a
@@ -313,7 +320,7 @@ elevated-priority threads are ART internals. Measures taken in 0.2.3:
 
 ## REST picture channel plan (2026-11-03)
 
-Design rationale and every verified fact behind it: `bravia-research/docs/rest-ip-control.md`. Short form: the TV's REST IP-control API (the `webapi` package) is the only non-root route to the ~66 picture targets with no gRPC twin and the four Ambient Optimisation switches. Reads need no credential; writes need a Normal-auth cookie (one on-screen PIN, 14-day cookie, renewed by re-registering) or a PSK. The agent calls it on loopback and relays over its pinned link, so no TV credential ever reaches Home Assistant.
+Design rationale and every verified fact behind it are in the project's research notes (not public). Short form: the TV's REST IP-control API (the `webapi` package) is the only non-root route to the ~66 picture targets with no gRPC twin and the four Ambient Optimisation switches. Reads need no credential; writes need a Normal-auth cookie (one on-screen PIN, 14-day cookie, renewed by re-registering) or a PSK. The agent calls it on loopback and relays over its pinned link, so no TV credential ever reaches Home Assistant.
 
 ### R1 — agent: read tier (no auth, no user involvement)
 
@@ -555,8 +562,8 @@ Manual-change behaviour (revised 2026-11-07, user's decision):
     room, an animated Earth view, Earth from space, a starfield, aibo). The
     provider's three rows are the **three most recently used** themes:
     selecting Sensorial Gateway put `theme://sensorialgateway` first and
-    dropped Nature Scenery. Stepping through every theme (2026-11-04, UK
-    BRAVIA 8 II) gave all 14 ids. Ids may contain `/` and `-` (a first pass
+    dropped Nature Scenery. Stepping through every theme (2026-11-04, a
+    European BRAVIA 8 II) gave all 14 ids. Ids may contain `/` and `-` (a first pass
     with a narrower pattern truncated four of them):
 
     | Id | Title |

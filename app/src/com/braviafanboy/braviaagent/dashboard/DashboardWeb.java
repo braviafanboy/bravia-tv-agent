@@ -28,6 +28,8 @@ public final class DashboardWeb {
     private static final String TAG = "BraviaAgent";
     /** How long a page token request waits for Home Assistant to send a fresh token. */
     private static final long TOKEN_WAIT_MS = 30_000;
+    /** How many token requests from the page may wait at once; more are answered "no_token". */
+    private static final int MAX_TOKEN_WAITS = 2;
 
     private DashboardWeb() {
     }
@@ -75,6 +77,18 @@ public final class DashboardWeb {
             }
 
             @Override
+            public boolean onRenderProcessGone(WebView view, android.webkit.RenderProcessGoneDetail detail) {
+                // The page's renderer died (it crashed, or Android took its
+                // memory). Left to the default, Android ends the whole app,
+                // and the agent's server, event stream and ambient loop with
+                // it. Close the dashboard instead: this WebView cannot be used
+                // again.
+                Log.w(TAG, "dashboard: the page's renderer " + (detail.didCrash() ? "crashed" : "was killed") + "; closing");
+                controller.onRendererGone(view);
+                return true;
+            }
+
+            @Override
             public void doUpdateVisitedHistory(WebView view, String url, boolean isReload) {
                 bridge.pageUrl = url;
             }
@@ -108,7 +122,9 @@ public final class DashboardWeb {
                     float css = Float.parseFloat(value == null ? "0" : value.replace("\"", ""));
                     int px = Math.round(css * web.getScale());
                     android.view.View parent = (android.view.View) web.getParent();
-                    if (px > 0 && parent != null && parent.getHeight() > 0) {
+                    // The number comes from the page: a title bar is a strip
+                    // at the top, never a large part of the screen.
+                    if (px > 0 && parent != null && parent.getHeight() > 0 && px <= parent.getHeight() / 4) {
                         android.widget.FrameLayout.LayoutParams lp = new android.widget.FrameLayout.LayoutParams(
                             android.widget.FrameLayout.LayoutParams.MATCH_PARENT, parent.getHeight() + px);
                         lp.topMargin = -px;
@@ -135,6 +151,7 @@ public final class DashboardWeb {
         private final Handler main = new Handler(Looper.getMainLooper());
         volatile String pageUrl;
         private int commandId = 1000;
+        private final java.util.concurrent.atomic.AtomicInteger tokenWaits = new java.util.concurrent.atomic.AtomicInteger();
 
         Bridge(WebView web, DashboardController controller, DashboardSpec spec) {
             this.web = web;
@@ -157,29 +174,60 @@ public final class DashboardWeb {
                 return;
             }
             boolean force = DashboardSpec.force(payload);
+            // Any frame in the page can call this (the bridge is in all of
+            // them), so the number of waiting requests is bounded.
+            if (tokenWaits.incrementAndGet() > MAX_TOKEN_WAITS) {
+                tokenWaits.decrementAndGet();
+                eval("window." + cb + "(false, \"no_token\");");
+                return;
+            }
             // Waiting for Home Assistant can take a while; never block the bridge thread.
             new Thread(() -> {
-                TokenBox.Token t = controller.tokenFor(force, TOKEN_WAIT_MS);
-                if (t == null) {
-                    Log.w(TAG, "dashboard: no token from Home Assistant");
-                    eval("window." + cb + "(false, \"no_token\");");
-                    return;
-                }
-                JSONObject o = new JSONObject();
                 try {
-                    o.put("access_token", t.value);
-                    o.put("expires_in", t.expiresInS(System.currentTimeMillis()));
-                } catch (Exception ignored) {
+                    TokenBox.Token t = controller.tokenFor(force, TOKEN_WAIT_MS);
+                    if (t == null) {
+                        Log.w(TAG, "dashboard: no token from Home Assistant");
+                        eval("window." + cb + "(false, \"no_token\");");
+                        return;
+                    }
+                    JSONObject o = new JSONObject();
+                    try {
+                        o.put("access_token", t.value);
+                        o.put("expires_in", t.expiresInS(System.currentTimeMillis()));
+                    } catch (Exception ignored) {
+                    }
+                    deliverToken("window." + cb + "(true, " + o + ");");
+                } finally {
+                    tokenWaits.decrementAndGet();
                 }
-                eval("window." + cb + "(true, " + o + ");");
             }, "dashboard-token").start();
+        }
+
+        /**
+         * Hand a token to the page. The request was checked against the
+         * origin when it arrived, but the wait for Home Assistant can take
+         * half a minute: the page in the main frame, where the script runs,
+         * must still be on the Home Assistant origin when it does.
+         */
+        private void deliverToken(String js) {
+            main.post(() -> {
+                try {
+                    if (!spec.sameOrigin(web.getUrl())) {
+                        Log.w(TAG, "dashboard: the page left the Home Assistant origin; token withheld");
+                        return;
+                    }
+                    web.evaluateJavascript(js, null);
+                } catch (Exception ignored) {
+                    // WebView already destroyed.
+                }
+            });
         }
 
         /** The user logged out in the frontend: forget the token and close. */
         @JavascriptInterface
         public void revokeExternalAuth(String payload) {
             String cb = DashboardSpec.callback(payload, DashboardSpec.CALLBACK_REVOKE_TOKEN);
-            if (cb == null) return;
+            if (cb == null || !onOrigin()) return;
             eval("window." + cb + "(true, {});");
             controller.close();
         }
@@ -209,7 +257,7 @@ public final class DashboardWeb {
                     result.put("hasAssist", false);
                     result.put("hasBarCodeScanner", 0);
                     result.put("canSetupImprov", false);
-                    result.put("appVersion", "HA TV Agent " + com.braviafanboy.braviaagent.AgentService.VERSION);
+                    result.put("appVersion", "HA TV Agent " + com.braviafanboy.braviaagent.Version.of(web.getContext()));
                     reply.put("id", msg.optInt("id"));
                     reply.put("type", "result");
                     reply.put("success", true);

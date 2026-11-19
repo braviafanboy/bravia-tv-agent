@@ -1,34 +1,59 @@
-# Agent contract v1 (draft)
+# Agent contract v1
 
-JSON over plain HTTP on the LAN. All blocks are optional: a block the agent
-cannot read (missing permission, unsupported on the model) is `null`, and the
-integration creates no entities for it. Timestamps are ISO-8601 UTC. Numbers
-are JSON numbers; enums are lower-case strings.
+JSON over HTTPS on the LAN, port 8585. All blocks are optional: a block the
+agent cannot read (missing permission, unsupported on the model) is `null`,
+and the integration creates no entities for it. Timestamps are ISO-8601 UTC.
+Numbers are JSON numbers; enums are lower-case strings.
+
+Version numbers below are the agent's. What "0.10.0" changed is marked as
+such, because agents and integrations from before it are still in use.
 
 ## `GET /v1/info`
 
+Answers without the token (and at `/`). With the token it adds the parts
+marked below, which are not for strangers on the network.
+
 ```json
 {
-  "agent": {"version": "0.1.0", "contract": 1},
+  "agent": {"version": "0.10.0", "contract": 1, "port": 8585, "foreground": true},
+  "tls": {"fingerprint_sha256": "0123abcd…"},
   "tv": {
     "model": "K-65XR8M2",
-    "device_unique_id": "<40-hex, as advertised in _sonysmarthome._tcp>",
+    "device_unique_id": "<as advertised in _sonysmarthome._tcp>",
     "android_version": "14",
-    "firmware": "114.603.100.1EUA"
+    "build": "<the TV's build string>"
   },
   "permissions": {
     "notification_access": true,
     "bluetooth_connect": false,
-    "install_packages": true
+    "install_packages": true,
+    "display_overlay": true,
+    "post_notifications": true
   },
-  "endpoints": ["/v1/state", "/v1/events", "/v1/media/artwork"],
-  "pairing": {"paired": true, "paired_with": "Home Assistant", "window_open": false, "window_seconds_left": 0},
+  "pairing": {"paired": true, "method": "compare", "paired_with": "Home Assistant", "paired_from": "192.0.2.10"},
   "update": {"pending_version": null},
-  "tls": {"fingerprint_sha256": "0123abcd…"}
+  "endpoints": ["/v1/state", "/v1/events", "/v1/media/artwork", "/v1/setup"]
 }
 ```
 
-
+- With the token only (0.10.0): `tv.android_version`, `tv.build`,
+  `pairing.paired_with` (the name the paired client gave) and
+  `pairing.paired_from` (the address it paired from; `null` for a pairing made
+  before 0.10.0). Before 0.10.0 everything was given to anyone, as were
+  `pairing.window_open` and `pairing.window_seconds_left`, which no longer
+  exist.
+- `agent.foreground` is false while Android has refused to promote the
+  service (after a restart from the background); it keeps running.
+- `tv.device_unique_id` is the id in the TV's own `_sonysmarthome._tcp`
+  announcement: 40 hex characters, or only the beginning of them when a long
+  device name cut the announcement short (0.10.0; before, such a TV had
+  `null`). Compare it with another id by its beginning.
+- `pairing.method` is `compare` from 0.10.0 (see Authentication); absent on
+  older agents, which pair through a window.
+- `permissions.post_notifications` (0.10.0) is whether the fallback
+  notification of `POST /v1/notify` can be shown; always true before
+  Android 13.
+- `endpoints` lists what this agent serves; the example is shortened.
 
 ## Transport security
 
@@ -36,72 +61,177 @@ The agent serves **HTTPS only** (port 8585) with a self-signed EC P-256
 certificate generated in the Android keystore on first run (25-year validity,
 `CN=HA TV Agent`; installs from before 0.3.0 keep their original `CN=BRAVIA agent` certificate). Clients do not validate the name or chain; they **pin the
 certificate's SHA-256 fingerprint**, which the handshake exposes and
-`GET /v1/info.tls.fingerprint_sha256` repeats. The integration learns the
-fingerprint during pairing and pins it on every later connection; a
-different certificate (reinstall, factory reset) is treated like a rejected
-token and triggers a new pairing. The mDNS TXT carries `tls=1`. Plain HTTP is
-not served.
+`GET /v1/info.tls.fingerprint_sha256` repeats. The integration reads the
+fingerprint before pairing and pins it on every later connection. A different
+certificate (the app was reinstalled, the TV reset, or something else answers
+on the port) is never paired with on its own: the integration raises a repair,
+and pairs again only when the user confirms it. (Integrations before 0.10.0
+treated it like a rejected token and paired again at once.) The mDNS TXT
+carries `tls=1`. Plain HTTP is not served.
 
 ## Self-update
 
-`POST /v1/update?url=<apk>&sha256=<hex>&version=<v>` (authenticated) stages an
-update; `info.update.pending_version` shows it. The integration then launches
-`braviaagent://update` (cloud deep link) or the app (local launch, which hands
-over when an update is pending): the updater downloads the APK, verifies the
-SHA-256, opens a package-installer session and shows Android's confirmation,
-which the user accepts on screen. The first time, Android also asks to allow
-the agent to install unknown apps (`permissions.install_packages`; the setup
-flow, and OK on the status screen while it is missing, open that setting). Updates must be signed
-with the release key or Android refuses them; pairing and the certificate
-survive an in-place update. The release manifest the integration reads is
-`agent.json`: `{"version", "url", "sha256", "notes"}`.
+`POST /v1/update?url=<apk>&sha256=<hex>&version=<v>` (token) stages an
+update; `info.update.pending_version` shows it. All three are required from
+0.10.0: an `https` URL, the 64-hex SHA-256 the download must have, and the
+version it brings (digits and dots). Otherwise 400 `url_required`,
+`sha256_required` or `version_required`. Answers
+`{"pending": "<url>", "version": "<v>"}`. (Before 0.10.0 the hash and the
+version were optional, and `http` was accepted.)
+
+The integration then has the TV launch the app: the `braviaagent://update`
+link through Sony's cloud, or the local app launch, which runs the update
+whenever one is staged. The updater downloads the APK (at most 32 MiB),
+verifies the SHA-256, opens a package-installer session for this package only
+and shows Android's confirmation, which the user accepts on screen. The first
+time, Android also asks to allow the agent to install unknown apps
+(`permissions.install_packages`; the setup flow, and OK on the status screen
+while it is missing, open that setting). Android refuses an APK that is not
+signed with the release key or is older than the installed one; pairing and
+the certificate survive an in-place update.
+
+A staged update is run once. If anything fails (download, checksum, the
+installer, the user declining) it is no longer staged, and it lapses on its
+own 15 minutes after staging. An update is staged only through
+`POST /v1/update`: the updater takes nothing from the link or intent that
+starts it. (Until 0.9.1 a `?url=` in the link replaced the staged update, any
+app on the TV could send one, and a failed update stayed staged.)
+
+The release manifest the integration reads is `agent.json`:
+`{"version", "url", "sha256", "notes"}`.
 
 ## Authentication
 
-Unpaired (fresh install), every endpoint answers any LAN client **that sends
-no credentials**; a presented `Authorization` header is refused with 401, so
-a client holding a stale token learns it is not paired. Once a token exists,
-every request except `GET /v1/info` and `POST /v1/pair` must carry
-`Authorization: Bearer <token>`; otherwise 401 `{"error":"unauthorized"}`.
+Every request except `GET /v1/info` and `POST /v1/pair` must carry
+`Authorization: Bearer <token>`; otherwise 401 `{"error":"unauthorized"}`,
+and the connection is closed. This holds whether or not the agent is paired:
+an agent nobody has paired with answers nothing else. (Until 0.9.1 an unpaired
+agent answered every request that came without credentials.)
 
-- `POST /v1/pair?name=<client>` → `{"token": "<64 hex>"}` while the pairing
-  window is open, else 403 `{"error":"pairing_closed"}`. The window lasts 60 s
-  and opens when the status screen is launched by one of Sony's control
-  services (the integration's local gRPC app launch; referrer
-  `android-app://com.sony.dtv.devicecontrolservice`). There is no manual way
-  to open it on the TV (RIGHT on the status screen did until 0.4.1); for
-  development, `dumpsys activity service …/.AgentService pairing window`.
-  Pairing closes the window and replaces any earlier token. Opening or
-  closing the window leaves open event streams alone; a changed or cleared
-  token ends them.
-- Cloud delivery of a token (`braviaagent://pair?token=…` through the
-  cloud `application.deep_link`) was removed in 0.4.1. It needed the same LAN
-  path to verify the token, so it never helped when local pairing failed; the
-  token went through Sony's service and into the TV's system log (Sony's
-  command processor logs whole commands); and the link handler accepted
-  links from any app or web page, so anything on the TV could take over the
-  pairing. Agents from 0.4.1 ignore pair links; integrations up to 0.4.1
-  that still send one fall back to the local launch.
-- `GET /v1/info.pairing` = `{"paired", "paired_with", "window_open",
-  "window_seconds_left"}`; the mDNS TXT carries `p=0|1`.
-- Holding LEFT on the status screen clears the token.
+### Pairing (0.10.0)
+
+A person at the TV allows a pairing, after comparing a six-digit code that
+the agent shows with the one the client shows. The steps:
+
+1. `POST /v1/pair?name=<client>&commit=<64 hex>` asks. `commit` is the
+   SHA-256 of 32 random bytes the client keeps to itself for now. 202
+   `{"request": "<32 hex>", "nonce": "<64 hex>", "accepted": false,
+   "expires_in": 30}`; `nonce` is 32 random bytes of the agent's. Nothing
+   shows on the TV. Without a well-formed `commit`: 400
+   `{"error":"commit_required"}`.
+2. `POST /v1/pair?request=<id>&reveal=<64 hex>` reveals the client's bytes.
+   The agent checks them against `commit` (a mismatch ends the request, 403)
+   and answers 202 `{"request", "accepted": false, "expires_in"}`. Both sides
+   now compute the code, and the client shows it to its user.
+3. The agent's screen, whenever it is open while such a request waits, asks
+   the viewer to allow or deny it, naming the client and the address it asked
+   from and showing the code. The client may bring the screen up (the
+   integration: its local gRPC app launch); opening the app by hand does the
+   same. Deny has the focus, and BACK denies.
+4. `POST /v1/pair?request=<id>` collects: 200 `{"token": "<64 hex>"}` once
+   allowed, 202 `{"request", "accepted", "expires_in"}` until then, 403
+   `{"error":"pairing_denied"}` when the viewer denied it, 403
+   `{"error":"pairing_closed"}` when there is no such request (any more).
+
+The code is the first four bytes of
+
+    SHA-256("bravia-agent pairing 1" || 0x00 || client bytes || agent bytes
+            || SHA-256 of the agent's DER certificate)
+
+as a big-endian number, modulo 1,000,000, written with six digits (shown as
+`123 456`). The agent uses its own certificate; the client uses the one it
+saw on the connection, which it must have pinned before step 1. Test values
+are in `PairingTest.codes` and the integration's `tests/test_agent.py`.
+
+What the code is for:
+
+- Another client's request has other bytes, so the TV shows a code that the
+  user's client is not showing, and the viewer denies it.
+- Something between the client and the agent, answering the client with a
+  certificate of its own and passing the pairing on, makes the client compute
+  from that certificate: again two different codes.
+- Neither side can steer the code towards the other's. The client is bound
+  by `commit` before it learns `nonce`, and the agent (or whatever answers in
+  its place) must send `nonce` before it learns the client's bytes. That is
+  why the bytes are revealed in a second step.
+
+A wrong guess is right once in a million, and each try needs a person to look
+at it.
+
+- One request at a time. While one waits, another `POST /v1/pair?name=` gets
+  409 `{"error":"pairing_busy", "retry_after": <seconds>}`.
+- A request lapses 30 s after it was made unless it is on screen by then;
+  from the moment it is, the viewer has 120 s; once allowed, it can be
+  collected for 15 s. The address of a request that lapsed unanswered or was
+  denied gets 409 for 60 s, so that one address cannot keep the place taken.
+  (Several addresses taking turns can. That keeps others from pairing and
+  gets them nothing.)
+- The token in use stays valid until a new one has been collected, which
+  replaces it. A changed or cleared token ends open event streams.
+- Nothing a client sends and no launch allows a request; only the viewer
+  does. A launch by the TV's control service
+  (`com.sony.dtv.devicecontrolservice`, a system app, as the system recorded
+  the caller; a referrer carried in the launching intent is ignored) runs a
+  staged update if there is one, else opens the setup flow if
+  `POST /v1/setup` announced it, else leaves the screen open for a waiting
+  pairing request, else closes it again.
+- The status screen shows who is paired (name and address) and any request
+  that is waiting. Holding LEFT there clears the token.
+- For development, `dumpsys activity service …/.AgentService pairing
+  accept|deny` answers the waiting request as the viewer would.
+- The mDNS TXT carries `p=0|1` (paired).
+
+### Pairing until 0.9.1
+
+A launch of the status screen by a package whose name began `com.sony.`
+opened a 60 s window, during which `POST /v1/pair?name=<client>` answered
+`{"token": "<64 hex>"}` to whoever asked first, and 403
+`{"error":"pairing_closed"}` otherwise. The integration still pairs with such
+agents this way, without the user (it asks, gets 403, launches the agent, and
+asks again until the token comes). An integration from before 0.10.0 cannot
+pair with an agent from 0.10.0: it sends no `commit`.
+
+Why it changed: `/v1/info` told anyone when the window was open, so anything
+on the network could ask before the integration did and take the pairing; and
+the "launched by a Sony service" test read a referrer that the launching app
+can write itself. Making the launch itself the confirmation (and nothing
+else) would still have let any launch of the agent through the TV confirm
+whatever request was waiting, so the answer is the viewer's.
+
+Cloud delivery of a token (`braviaagent://pair?token=…` through the cloud
+`application.deep_link`) was removed in 0.4.1. It needed the same LAN path to
+verify the token, so it never helped when local pairing failed; the token went
+through Sony's service and into the TV's system log (Sony's command processor
+logs whole commands); and the link handler accepted links from any app or web
+page, so anything on the TV could take over the pairing. Agents from 0.4.1
+ignore pair links.
+
+## `POST /v1/setup` (0.10.0)
+
+Token. Announces that the next launch of the agent by the TV, within 30 s,
+is to open the permission screens, and answers `{"ok": true}`. The
+integration calls it before a local app launch when it has no cloud link to
+send `braviaagent://setup` with. Older agents answer 404 or 405; there a bare
+launch by the TV opens the pairing window instead.
 
 ## `GET /v1/state`
 
 ```json
 {
   "ts": "2026-11-02T21:00:00Z",
+  "revision": 412,
   "environment": {
     "illuminance_lx": 34.0,
     "temperature_c": 23.5
   },
   "display": {
     "on": true,
+    "state": "on",
     "width": 3840,
     "height": 2160,
     "refresh_hz": 60.0,
-    "hdr": "dolby_vision",
-    "brightness": 0.40
+    "hdr_supported": ["dolby_vision", "hdr10", "hlg"],
+    "is_hdr": true
   },
   "media": {
     "active": true,
@@ -115,12 +245,13 @@ every request except `GET /v1/info` and `POST /v1/pair` must carry
     "artwork_url": "/v1/media/artwork?v=7"
   },
   "inputs": [
-    {"id": "HW4", "label": "HDMI 3", "connected": true}
+    {"id": "HW4", "input_id": "<the TV's full input id>", "label": "HDMI 3", "type": "hdmi", "connected": true, "standby": false}
   ],
   "audio": {
-    "route": "hdmi_earc",
+    "outputs": [{"type": "hdmi_earc", "name": "<product name>"}],
     "volume": {"music": 18, "max": 100},
-    "muted": false
+    "muted": false,
+    "mode": 0
   },
   "bluetooth": {
     "remote": {"name": "SONY TV VRC 001", "type": "hid", "connected": true, "battery_pct": 72},
@@ -128,7 +259,7 @@ every request except `GET /v1/info` and `POST /v1/pair` must carry
       {"name": "Bluetooth headphones", "type": "audio", "connected": false, "battery_pct": null}
     ]
   },
-  "wifi": {"rssi_dbm": -63, "link_mbps": 648},
+  "wifi": {"rssi_dbm": -63, "link_mbps": 648, "frequency_mhz": 5500},
   "settings": {
     "power.power_saving": "off",
     "network.remotestart": "true"
@@ -155,6 +286,9 @@ every request except `GET /v1/info` and `POST /v1/pair` must carry
 }
 ```
 
+Further blocks appear once their feature has something to say: `ambient`,
+`remote_finder` and `dashboard`, described with their endpoints below.
+
 Field notes:
 
 - `media` is `null` until Notification access is granted to the agent
@@ -178,19 +312,30 @@ Field notes:
   else from one short GATT read at most every 6 hours over a link the stack
   already holds (never waking the remote); `null` until the first reading or
   for devices without the service.
+- `revision` counts changes to the document since the agent started.
 - `display.on` is the panel state (`Display.STATE_ON`); it is false during
-  Picture Off and standby. `hdr` is one of `none`, `hdr10`, `hlg`,
-  `dolby_vision`, `hdr10_plus` when a mode reports an active HDR type, else
-  `none`.
+  Picture Off and standby, and `state` is Android's name for it (`on`, `off`,
+  `doze`, …). `hdr_supported` lists the HDR formats the panel can show and
+  `is_hdr` is that capability, not what is playing: Sony's video pipeline
+  bypasses Android's display layers, so the live format has to come from gRPC
+  (`playback_control.signal_info.video`).
 - `media.state` follows Android's `PlaybackState`: `playing`, `paused`,
-  `stopped`, `buffering`, `none`. `position_s` is the position at `ts`; the
-  integration extrapolates from `ts` while `playing`.
-- `inputs[].id` is the TV input's hardware suffix (`HW2`…`HW5`); `label` is
-  the TV's own label when available.
-- `audio.route` is the active output device type as Android names it
-  (`speaker`, `hdmi_arc`, `hdmi_earc`, `bt_a2dp`, `headphone`).
-- `settings` contains only the keys the agent is built to report; values are
-  the provider's raw strings.
+  `stopped`, `buffering`, `none`, and more rarely `fast_forwarding`,
+  `rewinding`, `connecting`, `skipping`, `error`, `unknown`. `position_s` is
+  the position at `ts`; the integration extrapolates from `ts` while
+  `playing`.
+- `inputs[].id` is the TV input's hardware suffix (`HW2`…`HW5`) and
+  `input_id` the whole id; `label` is the TV's own label when available;
+  `type` is `hdmi`, `tuner`, `composite`, `component`, `display_port`, `vga`
+  or `other`; `standby`
+  is a connected device that is asleep.
+- `audio.outputs` lists the output devices Android reports, by type
+  (`speaker`, `hdmi`, `hdmi_arc`, `hdmi_earc`, `bt_a2dp`, `headphone`,
+  `spdif`) and product name; `mode` is `AudioManager`'s mode number.
+- `settings` contains only the keys the agent is built to report
+  (`power.power_saving`, `power.idle_tv_standby.duration`,
+  `power.auto_shut_off`, `network.remotestart`); values are the provider's raw
+  strings.
 - `rest`, `picture` and `power_saving` come from the TV's REST IP-control API
   (the `webapi` package), called by the agent on the TV itself (0.2.9+). They
   are `null` until the first read. The agent calls the API on loopback over
@@ -239,9 +384,10 @@ a normal `state` event if anything changed. 405 for other methods.
 ## `POST /v1/picture/config`
 
 Bearer. Body `{"poll_s": 60, "event_refresh": true, "watch": ["contrast"]}`;
-every key optional (an absent key keeps the stored value). `poll_s` is clamped
-to 10–3600. Stored on the TV, so it survives restarts and standby; reported
-back in `rest`. Clients re-send it on every connection. Answers the effective
+every key optional (an absent key keeps the stored value), but a JSON body
+there must be: 400 `json_body_required` without one. `poll_s` is clamped to
+10–3600. Stored on the TV, so it survives restarts and standby; reported back
+in `rest`. Clients re-send it on every connection. Answers the effective
 settings.
 
 ## `POST /v1/picture`
@@ -251,11 +397,25 @@ last read: unknown target 404 `unknown_target`, `available: false` 409
 `target_unavailable`, value outside the candidates 400 `invalid_value`. Then
 written with the stored pre-shared key. No key, or rejected: 403 `rest_unauthorized` (and
 `write_authorized` turns false). IP control not answering: 503
-`rest_unavailable`. Success `{"ok": true}`, followed by a re-read.
+`rest_unavailable`. A body without both keys: 400 `target_and_value_required`.
+Any other refusal by the TV: 500 `rest_error`. Success `{"ok": true}`,
+followed by a re-read.
+
+## `POST /v1/picture/batch`
+
+Bearer. Body `{"settings": [{"target": "contrast", "value": "91"}, …]}`: many
+targets at once, for restoring a picture profile (0.7.1). Each target that
+differs from the TV's current value is written on its own (the TV fails a
+multi-setting call), with one retry; targets already at their value are
+skipped. Values are not checked against the candidates first: the TV decides.
+Answers `{"applied": <n>, "failed": <n>, "results": [{"target", "ok",
+"value"}]}` from a read-back, where `value` is what the TV now has. 400
+`settings_required` without the list.
 
 ## `POST /v1/power_saving?mode=off|low|high`
 
-Bearer. Same error handling as `POST /v1/picture`.
+Bearer. Same error handling as `POST /v1/picture`; 400 `mode_required`
+without the parameter.
 
 ## `POST /v1/rest/psk`
 
@@ -299,10 +459,19 @@ All POSTs return the new block:
   (no mode: the current picture mode). Kept non-decreasing.
 - `POST /v1/ambient/reset` `{"mode"?}`: drop a mode's own curve.
 - `POST /v1/ambient/curves` `{"default"?, "modes"?}`: replace all curves.
+  All or nothing: a curve that is not six values leaves every curve as it
+  was (0.10.0).
 - `POST /v1/ambient/context` `{"signal": "sdr" | "hdr10" | "dolby_vision" | ...}`:
   the video's dynamic range class from Home Assistant's gRPC signal. The agent
   also treats HDR tone mapping being available as HDR, for when Home
-  Assistant is down.
+  Assistant is down. The hint counts while a client holds `/v1/events` and for
+  two minutes after; then it is dropped and the agent's own reading decides,
+  so that a last word of "HDR" does not keep ambient brightness paused while
+  Home Assistant is away (0.10.0). Clients send it on every change and on
+  every connection.
+
+Every POST needs a JSON body (400 `json_body_required`); a bad curve is 400
+`invalid_curve`.
 
 ## `POST /v1/remote/find`
 
@@ -311,22 +480,27 @@ LE write to Sony's remote finder service on the paired "SONY TV VRC 001"
 (details in RemoteFinder.java). Needs BLUETOOTH_CONNECT and the TV on. Waits
 until the beep command is written or fails (at most ~15 s) and answers
 `{"state": ...}`: `ringing`, `found`, `unsupported` (no finder service on the
-remote), `no_remote`, `no_permission` or `failed`. The state block
+remote), `no_remote`, `no_permission` or `failed` (and `connecting` if it is
+still trying when the wait ends). The state block
 `remote_finder` (`{"state", "reason", "at"}`) follows the beep: the remote
 reports `02 01 00` when it starts and `02 01 01` when a button silences it
-(found); `02` in the last byte would be a timeout.
+(found); `02` in the last byte would be a timeout. Its `state` returns to
+`idle` when the remote stops by itself.
 
 ## `POST /v1/notify`
 
 Shows a message on the TV screen as an overlay banner, over whatever is playing.
-Body `{"message", "title"?, "icon"?, "duration_s"?}`. `icon` is a friendly key
+Body `{"message", "title"?, "icon"?, "duration_s"?}`; one of `message` and
+`title` is enough (400 `message_required` with neither). `duration_s` defaults
+to 8 and is capped at 120. `icon` is a friendly key
 (`message`, `alert`, `info`, `home`, `cast`, `speaker`, `remote`, or `none`)
 mapped to a native Sony SystemUI drawable, with a framework fallback. Needs the
 SYSTEM_ALERT_WINDOW ("Display over other apps") permission; answers
 `{"state": "shown" | "notification" | "failed", "overlay": <bool>}`. `shown` =
 the overlay banner; `notification` = overlay not permitted, posted to the panel
-instead. The banner is suppressed on secure system screens (e.g. Settings),
-which hide non-system overlays.
+instead, which from Android 13 needs the notification permission the setup
+flow asks for (`permissions.post_notifications`). The banner is suppressed on
+secure system screens (e.g. Settings), which hide non-system overlays.
 
 ## Dashboards (`/v1/dashboard`)
 
@@ -374,6 +548,14 @@ TV must be able to reach Home Assistant at `url` (an isolated IoT network needs
 a rule for it). A dashboard closes when the panel turns off, and the full-screen
 one also when another app comes forward.
 
+From 0.10.0: a token is kept only while a dashboard is showing (one posted
+with none showing is dropped); the token is handed to the page only if the
+main frame is still on the Home Assistant origin at that moment, not just
+when the page asked; `revokeExternalAuth` is honoured only from that origin;
+and if the page's renderer dies (a crash, or Android reclaiming its memory)
+the dashboard closes and the agent carries on. Before, a dead renderer took
+the whole agent down with it.
+
 ## `POST /v1/media/command`
 
 Sends a transport command to the currently active media session (the one
@@ -383,7 +565,9 @@ the local session instead of over the Sony cloud. Body
 `previous` or `seek` (`position_ms` is the absolute target for `seek`). Answers
 `{"ok": <bool>}`: `ok` is false when there is no controllable session (e.g. live
 TV or an input that publishes none), and the integration then falls back to the
-cloud. Added in 0.7.0; older agents answer 404 and the integration falls back.
+cloud. 400 `action_required` without an action. Added in 0.7.1; older agents
+answer 405 (an unknown path with a method other than GET) and the integration
+falls back.
 
 ## `GET /v1/events`
 
@@ -391,7 +575,8 @@ cloud. Added in 0.7.0; older agents answer 404 and the integration falls back.
 
 - `state` — data is the full `/v1/state` document (coalesced, at most twice
   per second).
-- `heartbeat` — empty data every 30 s.
+- `heartbeat` — data `{}`, sent when 30 s have passed without a `state`
+  event.
 
 ## `GET /v1/themes` (removed in 0.4.1)
 
@@ -401,16 +586,30 @@ apps. Agents from 0.4.1 answer 404; integrations up to 0.4.1 ignore that.
 
 ## `GET /v1/media/artwork`
 
-The current media session's artwork as `image/png` or `image/jpeg`, 404 when
-none. Only referenced from `media.artwork_url`.
+The current media session's artwork as `image/jpeg`, 404 `no_artwork` when
+there is none. Only referenced from `media.artwork_url`.
 
 ## Discovery
 
 mDNS service type `_bravia-agent._tcp`, port as served, TXT records
-`v=1` (contract major) and `id=<device_unique_id>`.
+`v=1` (contract major), `tls=1`, `p=0|1` (paired) and
+`id=<device_unique_id>` once the agent knows it (see `tv.device_unique_id`).
 
-## Errors and versioning
+## Errors, limits and versioning
 
-- Unknown path: 404 with `{"error": "not_found"}`.
+- Without the token: 401 `{"error": "unauthorized"}` for everything but
+  `/v1/info` and `/v1/pair`, before the path or method is looked at.
+- Unknown path: 404 `{"error": "not_found"}` for GET, 405
+  `{"error": "method_not_allowed"}` for any other method; 405 also for a known
+  path with the wrong method.
+- A request may be at most: a 2 KiB request line (414), 8 KiB or 50 header
+  lines (431), a 64 KiB body (413). Chunked request bodies are not accepted
+  (501). The whole request must arrive within 10 s.
+- Connections: 24 at once, of which one client address may hold 8 (0.10.0;
+  before, 8 in all, which one client could fill). A new connection must
+  finish its TLS handshake within 5 s and start its first request within 5 s
+  more; a kept-alive connection may idle for 20 s. An answer to a request
+  without the token closes the connection, so only the token's holder keeps
+  one open. A connection over a limit is closed without an answer.
 - A contract major bump changes the path prefix (`/v2/`); `/v1/` keeps
   serving for at least one agent release after that.

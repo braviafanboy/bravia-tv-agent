@@ -15,6 +15,8 @@ import android.os.Build;
 import android.os.IBinder;
 import android.util.Log;
 
+import com.braviafanboy.braviaagent.core.PairingState;
+import com.braviafanboy.braviaagent.core.UpdatePolicy;
 import com.braviafanboy.braviaagent.readers.AudioReader;
 import com.braviafanboy.braviaagent.readers.BluetoothReader;
 import com.braviafanboy.braviaagent.readers.DisplayReader;
@@ -38,7 +40,8 @@ public final class AgentService extends Service implements HttpServer.InfoProvid
     private static final int NOTIFICATION_ID = 1;
     public static final int PORT = 8585;
     public static final String SERVICE_TYPE = "_bravia-agent._tcp";
-    public static final String VERSION = "0.9.1";
+    /** How long POST /v1/setup waits for the launch it announces. */
+    private static final long SETUP_ARMED_MS = 30_000;
 
     private static volatile AgentService instance;
 
@@ -67,6 +70,8 @@ public final class AgentService extends Service implements HttpServer.InfoProvid
     private String registeredId;
     private boolean registeredPaired;
     private boolean foreground;
+    /** Until when (elapsed realtime) the next launch by the TV opens the permission screens; 0 = not. */
+    private volatile long setupArmedUntil;
 
     public static AgentService instance() {
         return instance;
@@ -86,7 +91,7 @@ public final class AgentService extends Service implements HttpServer.InfoProvid
         identity = new DeviceIdentity(this);
         pairing = new Pairing(this);
         Updater staged = new Updater(this);
-        if (Updater.isApplied(staged.pendingVersion(), VERSION)) staged.clearPending();  // that update (or a newer one) is running
+        if (UpdatePolicy.isApplied(staged.pendingVersion(), Version.of(this))) staged.clearPending();  // that update (or a newer one) is running
         pairing.setListener(tokenChanged -> new android.os.Handler(getMainLooper()).post(() -> {
             registerMdns();
             // A changed token must re-authenticate open streams; the window
@@ -123,6 +128,7 @@ public final class AgentService extends Service implements HttpServer.InfoProvid
         server.setDashboard(dashboard);
         try {
             tls = Tls.load(this);
+            pairing.setCertificate(tls.fingerprint());
             server.start(tls.serverSocketFactory());
             Log.i(TAG, "https server on :" + PORT + " fingerprint " + tls.fingerprint().substring(0, 16) + "…");
         } catch (Exception e) {
@@ -147,6 +153,7 @@ public final class AgentService extends Service implements HttpServer.InfoProvid
     @Override
     public void onDestroy() {
         if (ambient != null) ambient.shutdown();
+        if (remoteFinder != null) remoteFinder.shutdown();
         unregisterMdns();
         if (server != null) server.stop();
         pauseReaders();
@@ -169,7 +176,9 @@ public final class AgentService extends Service implements HttpServer.InfoProvid
      *   picture refresh | picture get TARGET | picture set TARGET VALUE
      *   picture config POLL_S EVENT_REFRESH(true|false) [T1,T2,...]
      *   power_saving off|low|high
-     *   pairing window | pairing forget   (development: open the 60 s window / clear the token)
+     *   pairing accept | pairing deny | pairing forget
+     *                                     (development: answer the waiting pairing request as the
+     *                                      viewer would on screen / clear the token)
      *   ambient [on|off|learn on|learn off|reset]
      *   remote find                       (beep the remote)
      * </pre>
@@ -248,9 +257,13 @@ public final class AgentService extends Service implements HttpServer.InfoProvid
             } else if ("notify".equals(cmd)) {
                 String msg = args.length > 1 ? String.join(" ", Arrays.copyOfRange(args, 1, args.length)) : "Test message";
                 pw.println("notify: " + notifier.show("Home Assistant", msg, 0, "message") + " (overlay=" + notifier.canOverlay() + ")");
-            } else if ("pairing".equals(cmd) && "window".equals(sub)) {
-                pairing.openWindow();
-                pw.println("window open for " + Pairing.WINDOW_MS / 1000 + " s");
+            } else if ("pairing".equals(cmd) && ("accept".equals(sub) || "deny".equals(sub))) {
+                PairingState.Request waiting = pairing.pending();
+                PairingState.Request r = waiting == null ? null
+                    : "accept".equals(sub) ? pairing.accept(waiting.id) : pairing.deny(waiting.id);
+                pw.println(r == null ? "no pairing request is waiting with a code"
+                    : ("accept".equals(sub) ? "allowed" : "denied") + " the request from " + r.peer
+                        + " (code " + r.code() + ")");
             } else if ("pairing".equals(cmd) && "forget".equals(sub)) {
                 pairing.clear();
                 pw.println("pairing cleared");
@@ -262,7 +275,7 @@ public final class AgentService extends Service implements HttpServer.InfoProvid
             pw.println("error: " + e);
         }
         JSONObject snap = store.snapshot();
-        pw.println("version " + VERSION + ", paired " + pairing.isPaired());
+        pw.println("version " + Version.of(this) + ", paired " + pairing.isPaired());
         pw.println("rest " + snap.opt("rest"));
         pw.println("power_saving " + snap.opt("power_saving"));
         Object p = snap.opt("picture");
@@ -282,6 +295,19 @@ public final class AgentService extends Service implements HttpServer.InfoProvid
 
     public Pairing pairing() {
         return pairing;
+    }
+
+    /** POST /v1/setup: the next launch by the TV, if it comes soon, opens the permission screens. */
+    @Override
+    public void armSetup() {
+        setupArmedUntil = android.os.SystemClock.elapsedRealtime() + SETUP_ARMED_MS;
+    }
+
+    /** Whether a launch by the TV was announced as "open the permission screens"; true once per announcement. */
+    public boolean takeSetupRequest() {
+        long until = setupArmedUntil;
+        setupArmedUntil = 0;
+        return until != 0 && android.os.SystemClock.elapsedRealtime() < until;
     }
 
     public boolean notificationAccessGranted() {
@@ -335,13 +361,18 @@ public final class AgentService extends Service implements HttpServer.InfoProvid
         Log.i(TAG, "readers paused (panel off)");
     }
 
-    /** Document for /v1/info. */
+    /**
+     * Document for /v1/info. Without the token a caller gets what it needs to
+     * pair and to tell whether this agent will do: versions, the certificate
+     * fingerprint, whether it is paired, the grants, the endpoints. The TV's
+     * build and who is paired are for the holder of the token only.
+     */
     @Override
-    public JSONObject info() {
+    public JSONObject info(boolean full) {
         JSONObject o = new JSONObject();
         try {
             JSONObject agent = new JSONObject();
-            agent.put("version", VERSION);
+            agent.put("version", Version.of(this));
             agent.put("contract", HttpServer.CONTRACT);
             agent.put("port", PORT);
             agent.put("foreground", foreground);
@@ -352,20 +383,28 @@ public final class AgentService extends Service implements HttpServer.InfoProvid
             JSONObject tv = new JSONObject();
             tv.put("model", DeviceIdentity.model());
             tv.put("device_unique_id", identity.deviceUniqueId() == null ? JSONObject.NULL : identity.deviceUniqueId());
-            tv.put("android_version", Build.VERSION.RELEASE);
-            tv.put("build", Build.DISPLAY);
+            if (full) {
+                tv.put("android_version", Build.VERSION.RELEASE);
+                tv.put("build", Build.DISPLAY);
+            }
             o.put("tv", tv);
             JSONObject perms = new JSONObject();
             perms.put("notification_access", media.isGranted());
             perms.put("bluetooth_connect", bluetooth.isGranted());
             perms.put("install_packages", getPackageManager().canRequestPackageInstalls());
             perms.put("display_overlay", notifier.canOverlay());
+            perms.put("post_notifications", Build.VERSION.SDK_INT < 33
+                || checkSelfPermission("android.permission.POST_NOTIFICATIONS") == PackageManager.PERMISSION_GRANTED);
             o.put("permissions", perms);
             JSONObject pair = new JSONObject();
             pair.put("paired", pairing.isPaired());
-            pair.put("paired_with", pairing.isPaired() ? pairing.pairedName() : JSONObject.NULL);
-            pair.put("window_open", pairing.windowOpen());
-            pair.put("window_seconds_left", pairing.windowSecondsLeft());
+            // How this agent pairs: a request the viewer allows on the TV,
+            // after comparing a code with the one the client shows.
+            pair.put("method", "compare");
+            if (full) {
+                pair.put("paired_with", pairing.pairedName() == null ? JSONObject.NULL : pairing.pairedName());
+                pair.put("paired_from", pairing.pairedPeer() == null ? JSONObject.NULL : pairing.pairedPeer());
+            }
             o.put("pairing", pair);
             JSONObject upd = new JSONObject();
             Updater u = new Updater(this);
@@ -375,7 +414,7 @@ public final class AgentService extends Service implements HttpServer.InfoProvid
                 HttpServer.PICTURE_REFRESH_PATH, HttpServer.PICTURE_PATH, HttpServer.PICTURE_BATCH_PATH, HttpServer.PICTURE_CONFIG_PATH,
                 HttpServer.POWER_SAVING_PATH, HttpServer.REST_AUTH_PATH, HttpServer.REST_PSK_PATH,
                 HttpServer.REMOTE_FIND_PATH, HttpServer.NOTIFY_PATH, HttpServer.MEDIA_COMMAND_PATH,
-                HttpServer.AMBIENT_PATH, HttpServer.DASHBOARD_PATH)));
+                HttpServer.AMBIENT_PATH, HttpServer.DASHBOARD_PATH, HttpServer.SETUP_PATH)));
         } catch (Exception ignored) {
         }
         return o;

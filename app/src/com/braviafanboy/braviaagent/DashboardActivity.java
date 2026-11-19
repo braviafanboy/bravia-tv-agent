@@ -67,6 +67,18 @@ public final class DashboardActivity extends Activity {
         web.loadUrl(spec.url);
     }
 
+    /** The WebView's renderer died: take the WebView off the screen and destroy it. */
+    public void dropWebView(WebView gone) {
+        if (web != gone) return;
+        android.view.ViewParent parent = web.getParent();
+        if (parent instanceof android.view.ViewGroup) ((android.view.ViewGroup) parent).removeView(web);
+        try {
+            web.destroy();
+        } catch (Exception ignored) {
+        }
+        web = null;
+    }
+
     /** Kiosk: hide Home Assistant's title bar (called once the dashboard has loaded). */
     public void hideTitleBar() {
         if (web != null) DashboardWeb.hideTitleBar(web, null);

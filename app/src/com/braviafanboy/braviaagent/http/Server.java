@@ -16,7 +16,6 @@ import java.nio.charset.StandardCharsets;
 import java.util.Collections;
 import java.util.HashSet;
 import java.util.Set;
-import java.util.concurrent.Semaphore;
 import java.util.concurrent.SynchronousQueue;
 import java.util.concurrent.ThreadPoolExecutor;
 import java.util.concurrent.TimeUnit;
@@ -27,10 +26,15 @@ import javax.net.ssl.SSLSocket;
 
 /**
  * A small HTTP/1.1 server for the agent's API: blocking sockets, one pooled
- * thread per open connection, a hard cap on connections, keep-alive, and
- * chunked streaming for the event stream. Idle threads exit, so an idle server
- * costs one thread blocked in accept(). Pure Java (no Android APIs), so it is
- * tested on a desktop JVM.
+ * thread per open connection, a hard cap on connections in total and per
+ * client address, keep-alive, and chunked streaming for the event stream. Idle
+ * threads exit, so an idle server costs one thread blocked in accept(). Pure
+ * Java (no Android APIs), so it is tested on a desktop JVM.
+ *
+ * <p>A connection takes its place before the TLS handshake, so what a client
+ * without credentials can hold is bounded three ways: a share of the places
+ * per address, short waits for the handshake and the first request, and no
+ * keep-alive after a response marked {@link HttpResponse#closing}.
  */
 public final class Server {
     /** Answers one request; runs on the connection's thread. */
@@ -49,11 +53,13 @@ public final class Server {
 
     /** How long a kept-alive connection may wait for its next request. */
     public static final int IDLE_TIMEOUT_MS = 20000;
+    /** How long a new connection may wait before its first request starts. */
+    public static final int FIRST_REQUEST_TIMEOUT_MS = 5000;
     /** Socket read timeout once a request has started. */
     public static final int READ_TIMEOUT_MS = 5000;
     /** A whole request (line, headers, body) must arrive within this. */
     public static final int REQUEST_DEADLINE_MS = 10000;
-    public static final int HANDSHAKE_TIMEOUT_MS = 10000;
+    public static final int HANDSHAKE_TIMEOUT_MS = 5000;
     public static final int MAX_REQUESTS_PER_CONNECTION = 1000;
 
     private final ServerSocketFactory factory;
@@ -61,19 +67,25 @@ public final class Server {
     private final Handler handler;
     private final ThreadSetup setup;
     private final Logger log;
-    private final Semaphore permits;
+    private final ConnectionLimiter limiter;
     private final ThreadPoolExecutor pool;
     private final Set<Socket> open = Collections.synchronizedSet(new HashSet<>());
     private volatile ServerSocket serverSocket;
     private volatile boolean running;
 
     public Server(ServerSocketFactory factory, int port, Handler handler, int maxConnections, ThreadSetup setup, Logger log) {
+        this(factory, port, handler, maxConnections, maxConnections, setup, log);
+    }
+
+    /** {@code maxPerAddress}: how many of the {@code maxConnections} one client address may hold. */
+    public Server(ServerSocketFactory factory, int port, Handler handler, int maxConnections, int maxPerAddress,
+                  ThreadSetup setup, Logger log) {
         this.factory = factory;
         this.port = port;
         this.handler = handler;
         this.setup = setup;
         this.log = log;
-        permits = new Semaphore(maxConnections);
+        limiter = new ConnectionLimiter(maxConnections, maxPerAddress);
         AtomicInteger n = new AtomicInteger();
         pool = new ThreadPoolExecutor(0, maxConnections, 60, TimeUnit.SECONDS, new SynchronousQueue<>(), r -> {
             Thread t = new Thread(r, "http-" + n.incrementAndGet());
@@ -113,9 +125,10 @@ public final class Server {
                 if (running) log("http: accept failed: " + e);
                 continue;
             }
-            if (!permits.tryAcquire()) {
-                // At capacity. Nothing useful can be said before a TLS handshake, so just close.
-                log("http: connection limit reached, refusing " + s.getInetAddress().getHostAddress());
+            final String address = s.getInetAddress().getHostAddress();
+            if (!limiter.tryAcquire(address)) {
+                // At capacity, or this client is. Nothing useful can be said before a TLS handshake, so just close.
+                log("http: connection limit reached, refusing " + address);
                 closeQuietly(s);
                 continue;
             }
@@ -128,14 +141,14 @@ public final class Server {
                     } finally {
                         open.remove(s);
                         closeQuietly(s);
-                        permits.release();
+                        limiter.release(address);
                         Thread.interrupted();  // a stream may have been interrupted; don't leak it into the next task
                     }
                 });
             } catch (RuntimeException e) {
                 open.remove(s);
                 closeQuietly(s);
-                permits.release();
+                limiter.release(address);
             }
         }
     }
@@ -150,8 +163,9 @@ public final class Server {
             BufferedInputStream in = new BufferedInputStream(deadline, 8192);
             OutputStream out = new BufferedOutputStream(s.getOutputStream(), 8192);
             for (int served = 0; served < MAX_REQUESTS_PER_CONNECTION; served++) {
-                // Wait for the first byte of the next request at the idle timeout...
-                s.setSoTimeout(IDLE_TIMEOUT_MS);
+                // Wait for the first byte of the next request at the idle timeout
+                // (a new connection gets less: it has yet to show it is a client)...
+                s.setSoTimeout(served == 0 ? FIRST_REQUEST_TIMEOUT_MS : IDLE_TIMEOUT_MS);
                 in.mark(1);
                 if (in.read() < 0) return;
                 in.reset();
@@ -179,7 +193,7 @@ public final class Server {
                     writeStream(s, out, response);
                     return;
                 }
-                boolean keepAlive = request.keepAlive() && served + 1 < MAX_REQUESTS_PER_CONNECTION;
+                boolean keepAlive = request.keepAlive() && !response.close && served + 1 < MAX_REQUESTS_PER_CONNECTION;
                 writeFixed(out, response, keepAlive);
                 if (!keepAlive) return;
             }

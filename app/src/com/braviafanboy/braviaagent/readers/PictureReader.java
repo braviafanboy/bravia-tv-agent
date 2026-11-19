@@ -62,6 +62,8 @@ public final class PictureReader {
 
     /** Why a write was refused. */
     public static final class WriteException extends Exception {
+        private static final long serialVersionUID = 1L;
+
         public final String code;
         WriteException(String code) {
             super(code);

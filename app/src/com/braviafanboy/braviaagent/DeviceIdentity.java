@@ -13,8 +13,6 @@ import java.util.Collections;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Set;
-import java.util.regex.Matcher;
-import java.util.regex.Pattern;
 
 /**
  * The TV's own identity as the integration knows it: the 40-hex
@@ -26,7 +24,6 @@ public final class DeviceIdentity {
     private static final String TAG = "BraviaAgent";
     private static final String PREFS = "identity";
     private static final String KEY_ID = "device_unique_id";
-    private static final Pattern ID = Pattern.compile("-([0-9a-f]{40})$", Pattern.CASE_INSENSITIVE);
 
     public interface Callback {
         void onResolved(String deviceUniqueId);
@@ -65,9 +62,10 @@ public final class DeviceIdentity {
             @Override public void onDiscoveryStopped(String t) { }
             @Override public void onServiceLost(NsdServiceInfo s) { }
             @Override public void onServiceFound(NsdServiceInfo s) {
-                Matcher m = ID.matcher(s.getServiceName());
-                if (!m.find()) return;
-                final String candidate = m.group(1).toLowerCase();
+                // Whole, or its beginning when a long device name cut the
+                // announcement short (see DeviceId).
+                final String candidate = com.braviafanboy.braviaagent.core.DeviceId.fromInstanceName(s.getServiceName());
+                if (candidate == null) return;
                 nsd.resolveService(s, new NsdManager.ResolveListener() {
                     @Override public void onResolveFailed(NsdServiceInfo i, int e) { }
                     @Override public void onServiceResolved(NsdServiceInfo i) {
@@ -94,7 +92,10 @@ public final class DeviceIdentity {
     }
 
     private void remember(String id) {
-        if (id.equals(deviceUniqueId)) return;
+        if (id.equals(deviceUniqueId)) {
+            stop();  // known already: nothing more to look for
+            return;
+        }
         deviceUniqueId = id;
         context.getSharedPreferences(PREFS, Context.MODE_PRIVATE).edit().putString(KEY_ID, id).apply();
         Log.i(TAG, "device_unique_id resolved");

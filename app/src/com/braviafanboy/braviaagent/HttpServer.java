@@ -2,6 +2,9 @@ package com.braviafanboy.braviaagent;
 
 import android.util.Log;
 
+import com.braviafanboy.braviaagent.core.Access;
+import com.braviafanboy.braviaagent.core.PairingState;
+import com.braviafanboy.braviaagent.core.UpdatePolicy;
 import com.braviafanboy.braviaagent.readers.MediaReader;
 import com.braviafanboy.braviaagent.readers.PictureReader;
 
@@ -20,7 +23,7 @@ import java.util.concurrent.TimeUnit;
 
 import javax.net.ServerSocketFactory;
 
-/** The agent's HTTP surface: /v1/info, /v1/state, /v1/events (SSE), artwork, picture settings, pairing. */
+/** The agent's HTTP surface: /v1/info and pairing for anyone, everything else for the holder of the token. */
 public final class HttpServer implements Server.Handler {
     private static final String TAG = "BraviaAgent";
     public static final int CONTRACT = 1;
@@ -36,10 +39,18 @@ public final class HttpServer implements Server.Handler {
     public static final String NOTIFY_PATH = "/v1/notify";
     public static final String MEDIA_COMMAND_PATH = "/v1/media/command";
     public static final String DASHBOARD_PATH = "/v1/dashboard";
+    public static final String SETUP_PATH = "/v1/setup";
     private static final long HEARTBEAT_MS = 30000;
     private static final int QUEUE_DEPTH = 16;
-    /** Home Assistant holds the event stream plus a few short requests; this leaves ample headroom. */
-    private static final int MAX_CONNECTIONS = 8;
+    /**
+     * Home Assistant holds the event stream plus a few short requests, more
+     * when it changes several settings at once. One address may hold eight
+     * connections (what the whole server allowed before) of twenty-four, so
+     * that a single client, or two, filling its share still leaves Home
+     * Assistant its own.
+     */
+    private static final int MAX_CONNECTIONS = 24;
+    private static final int MAX_CONNECTIONS_PER_ADDRESS = 8;
 
     private final StateStore store;
     private final InfoProvider info;
@@ -56,7 +67,11 @@ public final class HttpServer implements Server.Handler {
     private final java.util.Set<Thread> streams = java.util.Collections.synchronizedSet(new java.util.HashSet<>());
 
     public interface InfoProvider {
-        JSONObject info();
+        /** The /v1/info document; {@code full} for a caller that showed the token. */
+        JSONObject info(boolean full);
+
+        /** The next launch by the TV opens the permission screens (POST /v1/setup). */
+        void armSetup();
     }
 
     public HttpServer(android.content.Context context, int port, StateStore store, InfoProvider info, MediaReader media, Pairing pairing, PictureReader picture) {
@@ -97,7 +112,7 @@ public final class HttpServer implements Server.Handler {
 
     /** Start serving HTTPS with the agent's TLS identity. */
     public void start(ServerSocketFactory tlsFactory) throws IOException {
-        server = new Server(tlsFactory, port, this, MAX_CONNECTIONS,
+        server = new Server(tlsFactory, port, this, MAX_CONNECTIONS, MAX_CONNECTIONS_PER_ADDRESS,
             // Request threads yield to the TV's video pipeline.
             () -> android.os.Process.setThreadPriority(android.os.Process.THREAD_PRIORITY_BACKGROUND),
             HttpServer::log);
@@ -111,12 +126,26 @@ public final class HttpServer implements Server.Handler {
     @Override
     public HttpResponse handle(HttpRequest session) {
         String path = session.path;
-        if ("/v1/pair".equals(path)) return pair(session);
-        if ("/v1/info".equals(path) || "/".equals(path)) return json(info.info());
-        if (!pairing.authorized(session.header("authorization"))) {
-            return error(401, "unauthorized").header("WWW-Authenticate", "Bearer realm=\"bravia-agent\"");
+        // The one gate, before anything is looked at: without the token only
+        // the public paths answer, and an agent nobody has paired with has no
+        // token to show. An answer to a caller without the token also closes
+        // the connection, so that such a caller cannot hold one open.
+        boolean authorized = pairing.authorized(session.header("authorization"));
+        if (!authorized && !Access.isPublic(path)) {
+            return error(401, "unauthorized").header("WWW-Authenticate", "Bearer realm=\"bravia-agent\"").closing();
+        }
+        if ("/v1/pair".equals(path)) return authorized ? pair(session) : pair(session).closing();
+        if ("/v1/info".equals(path) || "/".equals(path)) {
+            return authorized ? json(info.info(true)) : json(info.info(false)).closing();
         }
         if ("/v1/update".equals(path)) return update(session);
+        if (SETUP_PATH.equals(path)) {
+            // POST /v1/setup: the next launch of the app by the TV (the
+            // integration's local launch) opens the permission screens.
+            if (!"POST".equals(session.method)) return error(405, "method_not_allowed");
+            info.armSetup();
+            return ok();
+        }
         if (PICTURE_REFRESH_PATH.equals(path)) return pictureRefresh(session);
         if (PICTURE_BATCH_PATH.equals(path)) return pictureBatch(session);
         if (PICTURE_PATH.equals(path)) return pictureWrite(session);
@@ -169,28 +198,65 @@ public final class HttpServer implements Server.Handler {
         }
     }
 
-    /** POST /v1/pair?name=<client>: mint a token while the pairing window is open. */
+    /**
+     * Pairing (see {@link PairingState}). POST /v1/pair?name=<client>&commit=
+     * <SHA-256 of the client's secret> asks: 202 {"request", "nonce",
+     * "accepted": false, "expires_in"}, or 409 {"error": "pairing_busy",
+     * "retry_after"} while another request is waiting. POST /v1/pair?request=
+     * <id>&reveal=<the secret> gives the request its code, which the viewer
+     * compares on the agent's screen before allowing it. POST /v1/pair?
+     * request=<id> collects: 200 {"token"} once allowed, 202 until then, 403
+     * {"error": "pairing_denied"} when the viewer said no, 403 {"error":
+     * "pairing_closed"} when there is no such request (any longer).
+     */
     private HttpResponse pair(HttpRequest session) {
         if (!"POST".equals(session.method)) return error(405, "method_not_allowed");
-        String name = param(session, "name");
-        if (name == null || name.isEmpty()) name = "unknown";
-        String token = pairing.pair(name);
-        if (token == null) return error(403, "pairing_closed");
+        String request = param(session, "request");
+        String reveal = param(session, "reveal");
+        PairingState.Reply r;
+        if (request == null) {
+            r = pairing.request(param(session, "name"), session.remoteAddress, param(session, "commit"));
+        } else if (reveal != null) {
+            r = pairing.reveal(request, reveal);
+        } else {
+            r = pairing.collect(request);
+        }
         JSONObject o = new JSONObject();
-        try { o.put("token", token); } catch (Exception ignored) { }
-        log("paired " + name + " from " + session.remoteAddress);
-        return json(o);
+        try {
+            if (r.token != null) {
+                o.put("token", r.token);
+            } else if (r.request != null) {
+                o.put("request", r.request);
+                if (r.nonce != null) o.put("nonce", r.nonce);
+                o.put("accepted", r.accepted);
+                o.put("expires_in", r.seconds);
+            } else {
+                o.put("error", r.error);
+                if (r.status == 409) o.put("retry_after", r.seconds);
+            }
+        } catch (Exception ignored) { }
+        return HttpResponse.text(r.status, "application/json", o.toString()).header("Cache-Control", "no-store");
     }
 
-    /** POST /v1/update?url=&sha256=&version=: stage a self-update (run by UpdateActivity). */
+    /**
+     * POST /v1/update?url=&sha256=&version=: stage a self-update, which
+     * UpdateActivity then runs. All three are required: an https address, the
+     * SHA-256 the download must have, and the version it brings.
+     */
     private HttpResponse update(HttpRequest session) {
         if (!"POST".equals(session.method)) return error(405, "method_not_allowed");
         String url = param(session, "url");
-        if (url == null || !(url.startsWith("https://") || url.startsWith("http://"))) return error(400, "url_required");
-        updater.setPending(url, param(session, "sha256"), param(session, "version"));
+        String sha256 = param(session, "sha256");
+        String version = param(session, "version");
+        String refusal = UpdatePolicy.refusal(url, sha256, version);
+        if (refusal != null) return error(400, refusal);
+        updater.setPending(url, sha256, version);
         JSONObject o = new JSONObject();
-        try { o.put("pending", url); } catch (Exception ignored) { }
-        log("update staged: " + url);
+        try {
+            o.put("pending", url);
+            o.put("version", version);
+        } catch (Exception ignored) { }
+        log("update staged: " + version);
         return json(o);
     }
 

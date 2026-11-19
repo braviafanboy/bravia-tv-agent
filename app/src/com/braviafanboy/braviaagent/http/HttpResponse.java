@@ -18,6 +18,8 @@ public final class HttpResponse {
     public final byte[] body;
     public final StreamBody stream;
     public final Map<String, String> headers = new LinkedHashMap<>();
+    /** Close the connection after this response, whatever the client asked for. */
+    public boolean close;
 
     private HttpResponse(int status, String contentType, byte[] body, StreamBody stream) {
         this.status = status;
@@ -43,9 +45,19 @@ public final class HttpResponse {
         return this;
     }
 
+    /**
+     * Close the connection after this response. For answers to a client that
+     * showed no valid credentials, so that it cannot keep a connection open.
+     */
+    public HttpResponse closing() {
+        close = true;
+        return this;
+    }
+
     static String reason(int status) {
         switch (status) {
             case 200: return "OK";
+            case 202: return "Accepted";
             case 400: return "Bad Request";
             case 401: return "Unauthorized";
             case 403: return "Forbidden";

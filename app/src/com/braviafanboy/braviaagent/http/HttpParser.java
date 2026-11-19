@@ -29,6 +29,8 @@ public final class HttpParser {
 
     /** A request the server must answer with {@code status} and then close. */
     public static final class BadRequest extends Exception {
+        private static final long serialVersionUID = 1L;
+
         public final int status;
         public final String code;
 

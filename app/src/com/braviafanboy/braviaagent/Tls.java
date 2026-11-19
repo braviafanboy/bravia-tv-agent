@@ -19,10 +19,12 @@ import javax.security.auth.x500.X500Principal;
 
 /**
  * The agent's TLS identity: an EC P-256 key pair with a self-signed certificate,
- * generated once in the Android keystore (private key never leaves the TV,
- * survives app updates, is lost with an uninstall or factory reset, which
- * also loses the pairing token, so the integration simply re-pairs). Clients
- * pin the certificate's SHA-256 fingerprint, published in /v1/info.
+ * generated once in the Android keystore. The private key never leaves the
+ * TV and survives app updates. It is lost with an uninstall or a factory
+ * reset, which also loses the pairing token. Clients pin the certificate's
+ * SHA-256 fingerprint, published in /v1/info, so a new certificate is a new
+ * identity to them: the integration pairs with it only after the user has
+ * confirmed that in Home Assistant.
  */
 public final class Tls {
     private static final String TAG = "BraviaAgent";

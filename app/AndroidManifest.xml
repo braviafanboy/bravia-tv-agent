@@ -26,6 +26,14 @@
     <!-- Sony's settings provider; protection level "normal". -->
     <uses-permission android:name="com.sony.dtv.settingsprovider.permission.READ_SETTINGS" />
 
+    <!-- The TV's control service launches the app for Home Assistant (to
+         confirm a pairing, run an update, open the setup screen). The agent
+         acts on a launch only after checking that the caller is that system
+         package, which it can do only if the package is visible to it. -->
+    <queries>
+        <package android:name="com.sony.dtv.devicecontrolservice" />
+    </queries>
+
     <application
         android:label="HA TV Agent"
         android:banner="@android:drawable/sym_def_app_icon"
@@ -55,9 +63,10 @@
             android:configChanges="orientation|screenSize|keyboard|keyboardHidden|navigation"
             android:theme="@android:style/Theme.DeviceDefault.NoActionBar.Fullscreen" />
 
+        <!-- Started only by StatusActivity; it takes nothing from its intent. -->
         <activity
             android:name=".UpdateActivity"
-            android:exported="true"
+            android:exported="false"
             android:excludeFromRecents="true" />
 
         <service

@@ -113,9 +113,13 @@ public final class DashboardController {
             if (ok[0]) main.postDelayed(revealFallback, REVEAL_FALLBACK_MS);
         });
         if (!ok[0]) {
+            // Nothing is showing: no dashboard, and no use for its token.
+            boolean mine;
             synchronized (this) {
-                if (current == spec) current = null;
+                mine = current == spec;
+                if (mine) current = null;
             }
+            if (mine) tokens.clear();
         }
         publish();
         Log.i(TAG, "dashboard: " + (ok[0] ? "shown" : "failed") + " (" + spec.mode + ")");
@@ -141,10 +145,12 @@ public final class DashboardController {
 
     /** A fresh token from Home Assistant. */
     public void setToken(String token, int expiresInS) {
-        tokens.set(token, expiresInS, System.currentTimeMillis());
         synchronized (this) {
+            // No dashboard, no use for a token: it is not kept.
+            if (current == null) return;
             tokenNeeded = false;
         }
+        tokens.set(token, expiresInS, System.currentTimeMillis());
         publish();
     }
 
@@ -224,6 +230,25 @@ public final class DashboardController {
     /** The screen went off: nothing to show on. */
     public void onPanel(boolean on) {
         if (!on && current() != null) close();
+    }
+
+    /**
+     * A dashboard's renderer died (main thread). Its WebView cannot be used
+     * again and has to leave the screen before it is destroyed; then the
+     * dashboard is closed like any other.
+     */
+    void onRendererGone(WebView view) {
+        if (view == overlayWeb) {
+            removeOverlay();
+        } else if (activity != null) {
+            activity.dropWebView(view);
+        } else {
+            try {
+                view.destroy();
+            } catch (Exception ignored) {
+            }
+        }
+        close();
     }
 
     // --- Full screen -------------------------------------------------------
@@ -407,22 +432,34 @@ public final class DashboardController {
         return b instanceof JSONObject ? (JSONObject) b : new JSONObject();
     }
 
+    /**
+     * Run on the main thread and wait for it. If the main thread does not get
+     * to it within five seconds it is called off and never runs, so that a
+     * dashboard reported as failed is not put on screen later after all. Once
+     * it has started it is waited for.
+     */
     private void runOnMainBlocking(Runnable r) {
         if (Looper.myLooper() == Looper.getMainLooper()) {
             r.run();
             return;
         }
-        final java.util.concurrent.CountDownLatch latch = new java.util.concurrent.CountDownLatch(1);
+        // 0 = not started, 1 = started, 2 = called off.
+        final java.util.concurrent.atomic.AtomicInteger state = new java.util.concurrent.atomic.AtomicInteger();
+        final java.util.concurrent.CountDownLatch done = new java.util.concurrent.CountDownLatch(1);
         main.post(() -> {
+            if (!state.compareAndSet(0, 1)) return;
             try {
                 r.run();
             } finally {
-                latch.countDown();
+                done.countDown();
             }
         });
         try {
-            latch.await(5, java.util.concurrent.TimeUnit.SECONDS);
+            if (done.await(5, java.util.concurrent.TimeUnit.SECONDS)) return;
+            if (state.compareAndSet(0, 2)) return;
+            done.await(15, java.util.concurrent.TimeUnit.SECONDS);
         } catch (InterruptedException ignored) {
+            state.compareAndSet(0, 2);
         }
     }
 

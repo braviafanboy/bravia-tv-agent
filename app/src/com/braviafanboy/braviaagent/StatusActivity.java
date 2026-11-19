@@ -7,7 +7,9 @@ import android.os.Bundle;
 import android.os.Handler;
 import android.os.Looper;
 import android.content.Intent;
+import android.content.pm.ApplicationInfo;
 import android.content.pm.PackageManager;
+import android.os.Build;
 import android.provider.Settings;
 import android.view.Gravity;
 import android.view.KeyEvent;
@@ -15,6 +17,8 @@ import android.util.TypedValue;
 import android.widget.LinearLayout;
 import android.widget.TextView;
 import android.widget.Toast;
+
+import com.braviafanboy.braviaagent.core.PairingState;
 
 import org.json.JSONObject;
 
@@ -28,8 +32,17 @@ import java.util.Set;
 /**
  * The agent's one screen: a short, plain status of what it can do, and the
  * setup flow that walks through Android's permission prompts. Opened from the
- * launcher, or by Home Assistant's Agent setup button (setup link), which
- * closes it again once there is nothing left to grant.
+ * launcher, or by Home Assistant's Agent setup button, which closes it again
+ * once there is nothing left to grant.
+ *
+ * <p>It is also where a pairing request is answered: while one is waiting,
+ * this screen asks the viewer to allow or deny it and shows the code to
+ * compare (see {@link #maybePrompt}), however the screen was opened.
+ *
+ * <p>And it is what the TV's control service starts when Home Assistant
+ * launches the app: to run a staged update, to open the setup flow, or to put
+ * that pairing question before the viewer. Only a launch by that service
+ * starts an update or the setup flow (see {@link #launchedByTv}).
  */
 public final class StatusActivity extends Activity {
     private static final int OK_COLOR = 0xFF7BD88F;
@@ -38,6 +51,12 @@ public final class StatusActivity extends Activity {
     /** Does not work until something is done. */
     private static final int BAD_COLOR = 0xFFFF6B6B;
     private static final int DIM_COLOR = 0xFF9A9A9A;
+    private static final String TAG = "BraviaAgent";
+    /**
+     * The TV's control service: it launches apps for Sony's control channels
+     * (Home Assistant's local launch, and links sent through Sony's cloud).
+     */
+    private static final String CONTROL_SERVICE = "com.sony.dtv.devicecontrolservice";
     static final String DISCLAIMER =
         "Unofficial helper for the Bravia TV (gRPC) integration · not affiliated with Sony or Home Assistant";
 
@@ -45,6 +64,11 @@ public final class StatusActivity extends Activity {
     private LinearLayout rows;
     private TextView versionLine;
     private LinearLayout keys;
+    /** The pairing question on screen, and the request it is about. */
+    private android.app.AlertDialog pairingDialog;
+    private String promptedId;
+    /** The screen was opened for a pairing request: close it after the answer. */
+    private boolean closeAfterPairing;
     private final Runnable refresh = new Runnable() {
         @Override public void run() {
             render();
@@ -57,82 +81,206 @@ public final class StatusActivity extends Activity {
         super.onCreate(savedInstanceState);
         AgentService.start(this);
         Intent intent = getIntent();
-        Uri referrer = getReferrer();
-        Uri data = intent == null ? null : intent.getData();
-        // Never log a link's query (older integrations put a token in pair links).
-        String shown = data == null ? "null" : data.getScheme() + "://" + data.getHost() + (data.getQuery() != null ? "?…" : "");
-        android.util.Log.i("BraviaAgent", "launched with referrer " + referrer + " data " + shown);
-        if (isPairLink(data)) {
-            // Pairing links (cloud deep link) are no longer accepted: any app or
-            // web page could send one and take over the pairing. Integrations
-            // that still try them fall back to the local launch, which opens
-            // the pairing window. Leave without drawing.
-            android.util.Log.i("BraviaAgent", "ignored a pairing link; pairing is local only");
+        boolean byTv = launchedByTv(intent);
+        String link = linkOf(intent);
+        android.util.Log.i(TAG, "launched" + (byTv ? " by the TV" : "") + (link == null ? "" : ", " + link + " link"));
+        // Pairing links are not accepted (they once carried a token through
+        // Sony's cloud), and no link counts unless the TV delivered it.
+        if ("pair".equals(link)) {
             finish();
             return;
         }
-        String host = referrer == null ? null : referrer.getHost();
-        boolean updateLink = data != null && "braviaagent".equals(data.getScheme()) && "update".equals(data.getHost());
-        if (updateLink || (host != null && host.startsWith("com.sony.") && new Updater(this).pendingUrl() != null)) {
-            // A self-update: hand over to the foreground updater.
-            startActivity(new Intent(this, UpdateActivity.class).setData(data));
-            finish();
-            return;
-        }
-        boolean setupLink = data != null && "braviaagent".equals(data.getScheme()) && "setup".equals(data.getHost());
-        if (!setupLink && host != null && host.startsWith("com.sony.")) {
-            // Launched by the integration through DeviceControlService to pair
-            // locally: open the window, say so, and leave without drawing.
-            handler.postDelayed(() -> {
-                AgentService svc = AgentService.instance();
-                if (svc != null) svc.pairing().openWindow();
-            }, 300);
-            android.widget.Toast.makeText(this, "Home Assistant is pairing with the HA TV Agent", android.widget.Toast.LENGTH_LONG).show();
-            finish();
-            return;
-        }
-        setupFlow = setupLink;
-        if (setupFlow && allGranted()) {
-            // Nothing to grant: say so and get out of the way.
-            toast("HA TV Agent is set up");
-            finish();
-            return;
-        }
+        if (byTv && tvLaunch(link, true)) return;
         buildUi();
-        if (setupFlow) advance();
     }
 
     @Override
     protected void onNewIntent(Intent intent) {
         super.onNewIntent(intent);
         setIntent(intent);
-        Uri data = intent.getData();
-        if (isPairLink(data)) { finish(); return; }
-        boolean setupLink = data != null && "braviaagent".equals(data.getScheme()) && "setup".equals(data.getHost());
-        boolean updateLink = data != null && "braviaagent".equals(data.getScheme()) && "update".equals(data.getHost());
         // The screen is already open, so a launch arrives here rather than in
-        // onCreate. A launch by the TV's control service (the integration's
-        // local launch) must still open the pairing window or start a staged
-        // update; otherwise re-pairing fails whenever this screen is showing.
-        Uri referrer = getReferrer();
-        String host = referrer == null ? null : referrer.getHost();
-        boolean byTv = host != null && host.startsWith("com.sony.");
-        if (updateLink || (byTv && !setupLink && new Updater(this).pendingUrl() != null)) {
-            startActivity(new Intent(this, UpdateActivity.class).setData(data));
-            return;
+        // onCreate, and must do the same.
+        boolean byTv = launchedByTv(intent);
+        String link = linkOf(intent);
+        if ("pair".equals(link)) return;
+        if (byTv) tvLaunch(link, false);
+    }
+
+    /**
+     * Whether this launch came from the TV's control service.
+     *
+     * <p>A referrer inside the intent is whatever the caller wrote there, so
+     * it is taken out first: what getReferrer() then returns is the caller the
+     * system recorded. That package must be the control service by name, and
+     * part of the system (a name alone could be taken by any app on a device
+     * that lacks the real one).
+     */
+    private boolean launchedByTv(Intent intent) {
+        try {
+            if (intent != null) {
+                intent.removeExtra(Intent.EXTRA_REFERRER);
+                intent.removeExtra(Intent.EXTRA_REFERRER_NAME);
+            }
+            Uri referrer = getReferrer();
+            if (referrer == null || !"android-app".equals(referrer.getScheme())) return false;
+            String caller = referrer.getHost();
+            if (!CONTROL_SERVICE.equals(caller)) {
+                android.util.Log.i(TAG, "launched by " + caller);
+                return false;
+            }
+            ApplicationInfo info = getPackageManager().getApplicationInfo(caller, 0);
+            return (info.flags & ApplicationInfo.FLAG_SYSTEM) != 0;
+        } catch (PackageManager.NameNotFoundException e) {
+            android.util.Log.w(TAG, "the TV's control service is not visible to the agent");
+            return false;
+        } catch (RuntimeException e) {
+            // Extras that cannot be read: not something the TV sends.
+            return false;
         }
-        if (byTv && !setupLink) {
-            android.util.Log.i("BraviaAgent", "launched by " + host + " while open: pairing window");
-            AgentService svc = AgentService.instance();
-            if (svc != null) svc.pairing().openWindow();
-            toast("Home Assistant is pairing with the HA TV Agent");
-            return;
+    }
+
+    /** "pair", "update" or "setup" for a {@code braviaagent://} link, else null. */
+    private static String linkOf(Intent intent) {
+        Uri data = intent == null ? null : intent.getData();
+        if (data == null || !"braviaagent".equals(data.getScheme())) return null;
+        String what = data.getHost();
+        return "pair".equals(what) || "update".equals(what) || "setup".equals(what) ? what : null;
+    }
+
+    /**
+     * A launch by the TV's control service, which is how Home Assistant
+     * reaches the app: with an update link or while an update is staged, run
+     * the update; with a setup link or after POST /v1/setup, open the setup
+     * flow; otherwise, when a pairing request is waiting, stay open so the
+     * viewer can answer it. With nothing to do the screen closes again.
+     *
+     * <p>{@code created}: the launch created this screen (rather than reaching
+     * one already open), so it closes again once there is nothing to show.
+     * Returns whether the launch was dealt with.
+     */
+    private boolean tvLaunch(String link, boolean created) {
+        if ("update".equals(link) || (link == null && new Updater(this).pendingUrl() != null)) {
+            startActivity(new Intent(this, UpdateActivity.class));
+            if (created) finish();
+            return true;
         }
-        if (setupLink) {
+        AgentService svc = AgentService.instance();
+        if ("setup".equals(link) || (link == null && svc != null && svc.takeSetupRequest())) {
+            if (allGranted()) {
+                // Nothing to grant: say so and get out of the way.
+                toast("HA TV Agent is set up");
+                if (created) finish();
+                return true;
+            }
+            if (created) buildUi();
             setupFlow = true;
             asked.clear();
             advance();
+            return true;
         }
+        PairingState.Request request = svc == null ? null : svc.pairing().pending();
+        if (request != null && request.code() != null && !request.accepted()) {
+            // The question is asked once the screen is up (maybePrompt).
+            if (created) {
+                buildUi();
+                closeAfterPairing = true;
+            }
+            return true;
+        }
+        android.util.Log.i(TAG, "launched by the TV with nothing to do");
+        if (created) finish();
+        return true;
+    }
+
+    // ---- pairing -------------------------------------------------------------
+
+    /**
+     * Ask the viewer about the pairing request that is waiting, once it has
+     * its code. Called with every refresh of the screen, so a request that
+     * arrives while the screen is open is asked about too, and a question
+     * whose request has gone is taken down.
+     *
+     * <p>The answer is the viewer's alone: nothing a client sends, and no
+     * launch, allows a request. Deny has the focus, and BACK denies.
+     */
+    private void maybePrompt(AgentService svc) {
+        PairingState.Request request = svc == null ? null : svc.pairing().pending();
+        boolean askable = request != null && request.code() != null && !request.accepted();
+        if (pairingDialog != null) {
+            if (askable && request.id.equals(promptedId)) return;
+            dismissPrompt();
+            if (!askable) {
+                toast("The pairing request is no longer waiting");
+                donePairing();
+                return;
+            }
+        }
+        if (!askable || setupFlow || isFinishing()) return;
+        final String id = request.id;
+        if (!svc.pairing().shown(id)) return;
+
+        LinearLayout body = new LinearLayout(this);
+        body.setOrientation(LinearLayout.VERTICAL);
+        body.setPadding(dp(28), dp(12), dp(28), dp(4));
+        body.addView(label(who(request.name, request.peer) + " asks to pair with the HA TV Agent.", 18, Color.WHITE));
+        String code = request.code();
+        TextView digits = label(code.substring(0, 3) + " " + code.substring(3), 44, Color.WHITE);
+        digits.setTypeface(android.graphics.Typeface.DEFAULT_BOLD);
+        digits.setPadding(0, dp(14), 0, dp(14));
+        body.addView(digits);
+        body.addView(label("Allow only if Home Assistant is showing this same code.", 16, DIM_COLOR));
+
+        android.app.AlertDialog dialog = new android.app.AlertDialog.Builder(this,
+                android.R.style.Theme_DeviceDefault_Dialog_Alert)
+            .setTitle("Allow pairing?")
+            .setView(body)
+            .setNegativeButton("Deny", (d, which) -> answered(id, false))
+            .setPositiveButton("Allow", (d, which) -> answered(id, true))
+            .setOnCancelListener(d -> answered(id, false))
+            .create();
+        dialog.setCanceledOnTouchOutside(false);
+        dialog.show();
+        android.widget.Button deny = dialog.getButton(android.content.DialogInterface.BUTTON_NEGATIVE);
+        if (deny != null) deny.requestFocus();
+        pairingDialog = dialog;
+        promptedId = id;
+    }
+
+    private void answered(String id, boolean allow) {
+        pairingDialog = null;
+        AgentService svc = AgentService.instance();
+        PairingState.Request r = svc == null ? null : allow ? svc.pairing().accept(id) : svc.pairing().deny(id);
+        if (r == null) {
+            toast("The pairing request is no longer waiting");
+        } else {
+            toast(allow ? "Pairing allowed for " + who(r.name, r.peer) : "Pairing denied");
+        }
+        donePairing();
+    }
+
+    /** Take the question down without an answer; the request waits on. */
+    private void dismissPrompt() {
+        android.app.AlertDialog dialog = pairingDialog;
+        pairingDialog = null;
+        promptedId = null;
+        if (dialog != null) {
+            try { dialog.dismiss(); } catch (RuntimeException ignored) { }
+        }
+    }
+
+    private void donePairing() {
+        if (closeAfterPairing) {
+            closeAfterPairing = false;
+            finish();
+        } else {
+            render();
+        }
+    }
+
+    /** A client as the viewer should see it: the name it gave, and the address it came from. */
+    private static String who(String name, String peer) {
+        String n = name == null || name.isEmpty() ? "unknown" : name;
+        return peer == null || peer.isEmpty() ? n : n + " (" + peer + ")";
     }
 
     // ---- setup flow ---------------------------------------------------------
@@ -145,6 +293,16 @@ public final class StatusActivity extends Activity {
 
     private boolean bluetoothGranted() {
         return checkSelfPermission("android.permission.BLUETOOTH_CONNECT") == PackageManager.PERMISSION_GRANTED;
+    }
+
+    /**
+     * From Android 13 a notification needs the viewer's consent. The agent
+     * posts one only when it may not draw over other apps, so this is asked
+     * for in the setup flow but is not one of the grants it waits for.
+     */
+    private boolean postNotificationsGranted() {
+        return Build.VERSION.SDK_INT < 33
+            || checkSelfPermission("android.permission.POST_NOTIFICATIONS") == PackageManager.PERMISSION_GRANTED;
     }
 
     private boolean notificationAccessGranted() {
@@ -170,6 +328,10 @@ public final class StatusActivity extends Activity {
     private boolean nextGrant() {
         if (!bluetoothGranted() && asked.add("bluetooth")) {
             requestPermissions(new String[] {"android.permission.BLUETOOTH_CONNECT"}, 1);
+            return true;
+        }
+        if (!postNotificationsGranted() && asked.add("post_notifications")) {
+            requestPermissions(new String[] {"android.permission.POST_NOTIFICATIONS"}, 2);
             return true;
         }
         if (!notificationAccessGranted() && asked.add("notifications")) {
@@ -237,9 +399,10 @@ public final class StatusActivity extends Activity {
     }
 
     /**
-     * OK: grant whatever is missing. Hold LEFT: forget the pairing (Home
-     * Assistant pairs again on its own). BACK closes. (Listed on screen.)
-     * There is no manual pairing window: the integration opens it itself.
+     * OK: grant whatever is missing. Hold LEFT: forget the pairing (it is
+     * started again from Home Assistant). BACK closes. (Listed on screen.)
+     * Nothing on this screen starts a pairing: a client asks for it, and the
+     * viewer answers here.
      */
     @Override
     public boolean onKeyDown(int keyCode, KeyEvent event) {
@@ -262,7 +425,7 @@ public final class StatusActivity extends Activity {
         return super.onKeyDown(keyCode, event);
     }
 
-    /** Holding LEFT clears the pairing; the integration pairs again on its own. */
+    /** Holding LEFT clears the pairing. */
     @Override
     public boolean onKeyLongPress(int keyCode, KeyEvent event) {
         AgentService svc = AgentService.instance();
@@ -292,6 +455,8 @@ public final class StatusActivity extends Activity {
     @Override
     protected void onPause() {
         handler.removeCallbacks(refresh);
+        // Nobody is looking: the question comes back with the screen.
+        dismissPrompt();
         super.onPause();
     }
 
@@ -309,7 +474,7 @@ public final class StatusActivity extends Activity {
         TextView title = label("HA TV Agent", 30, Color.WHITE);
         title.setTypeface(android.graphics.Typeface.DEFAULT_BOLD);
         root.addView(title);
-        versionLine = label("Version " + AgentService.VERSION, 16, DIM_COLOR);
+        versionLine = label("Version " + Version.of(this), 16, DIM_COLOR);
         root.addView(versionLine);
         root.addView(label(DISCLAIMER, 16, DIM_COLOR));
 
@@ -333,15 +498,20 @@ public final class StatusActivity extends Activity {
         if (svc == null) {
             row("Status", "Starting…", DIM_COLOR);
         } else {
+            // Always with the name and address of the other side: a pairing
+            // that is not Home Assistant's should be plain to see here.
             Pairing pairing = svc.pairing();
-            String open = pairing.windowOpen() ? " · pairing open, " + pairing.windowSecondsLeft() + " s left" : "";
+            PairingState.Request asking = pairing.pending();
+            String request = asking == null ? "" : " · pairing requested by " + who(asking.name, asking.peer);
             if (!pairing.isPaired()) {
-                row("Home Assistant", pairing.windowOpen() ? "Pairing… " + pairing.windowSecondsLeft() + " s left" : "Not paired",
-                    pairing.windowOpen() ? TODO_COLOR : BAD_COLOR);
-            } else if (svc.store().hasListeners()) {
-                row("Home Assistant", "Connected" + open, OK_COLOR);
+                row("Home Assistant", "Not paired" + request, asking == null ? BAD_COLOR : TODO_COLOR);
             } else {
-                row("Home Assistant", "Paired, waiting for it to connect" + open, TODO_COLOR);
+                String paired = who(pairing.pairedName(), pairing.pairedPeer());
+                if (svc.store().hasListeners()) {
+                    row("Home Assistant", "Connected: " + paired + request, OK_COLOR);
+                } else {
+                    row("Home Assistant", "Paired with " + paired + ", waiting for it to connect" + request, TODO_COLOR);
+                }
             }
         }
         grantRow("Now playing", notificationAccessGranted(), "Needs Notification access");
@@ -365,11 +535,12 @@ public final class StatusActivity extends Activity {
             }
         }
         String ip = ownIpv4();
-        versionLine.setText("Version " + AgentService.VERSION + (ip == null ? "" : "  ·  " + ip));
+        versionLine.setText("Version " + Version.of(this) + (ip == null ? "" : "  ·  " + ip));
         keys.removeAllViews();
         if (!allGranted()) keyRow("OK", "Grant missing permissions");
         keyRow("Hold LEFT", "Forget the pairing");
         keyRow("BACK", "Close");
+        maybePrompt(svc);
     }
 
     private void keyRow(String button, String action) {
@@ -428,9 +599,5 @@ public final class StatusActivity extends Activity {
         } catch (Exception ignored) {
         }
         return null;
-    }
-
-    private static boolean isPairLink(Uri data) {
-        return data != null && "braviaagent".equals(data.getScheme()) && "pair".equals(data.getHost());
     }
 }

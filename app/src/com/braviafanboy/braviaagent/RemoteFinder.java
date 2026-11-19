@@ -80,6 +80,12 @@ public final class RemoteFinder {
         handler.post(this::publish);
     }
 
+    /** The service is going away: end the worker thread. */
+    public void shutdown() {
+        handler.post(this::close);
+        handler.getLooper().quitSafely();
+    }
+
     /**
      * Start a find. Blocks (off the main thread) until the first beep command
      * is written or fails, at most ~15 s, and returns the state then.
@@ -113,6 +119,10 @@ public final class RemoteFinder {
     }
 
     private void start(CountDownLatch latch) {
+        // A find still running is replaced, timers and all: left behind, its
+        // timeouts closed the new one early.
+        handler.removeCallbacks(connectTimeout);
+        handler.removeCallbacks(stopListening);
         close();
         firstWrite = latch;
         sent = 0;

@@ -105,7 +105,13 @@ public final class AmbientCurve {
             }
             v[lo] = clamp((int) Math.round(a));
             v[hi] = clamp((int) Math.round(b));
-            if (v[lo] > v[hi]) v[lo] = v[hi];
+            // The curve must not fall, and the choice must stay on it. Where
+            // the smallest change would cross the two anchors (a choice above
+            // the upper one, made in light just above the lower), lowering
+            // the lower one to fit threw most of the correction away, and the
+            // loop then walked the slider back from what the viewer had just
+            // set. Both take the chosen value instead.
+            if (v[lo] > v[hi]) v[lo] = v[hi] = clamp(chosen);
         }
         normalise(v, lo);
         return new AmbientCurve(v);

@@ -7,6 +7,9 @@ itself and hands it to the
 [Bravia TV (gRPC)](https://github.com/braviafanboy/bravia-tv-grpc-homeassistant)
 Home Assistant integration. It has no purpose on its own.
 
+It needs Android 12 or later on the TV. Only a BRAVIA 8 II (Android 14) has
+been tested.
+
 ## What it adds
 
 - **Room sensors.** Ambient light in lux, the same reading the TV's auto
@@ -50,8 +53,11 @@ fetch an app from outside Google Play, and its browser cannot download files.
    ```
 
    Accept the *Allow debugging?* prompt on the TV.
-3. **Wait a few minutes.** The integration finds the agent, starts it,
-   pairs with it and adds its entities. Nothing appears on screen.
+3. **Pair it.** Within a few minutes Home Assistant shows a repair, *HA TV
+   Agent is not paired*. Run it while you are at the TV: Home Assistant shows
+   a six-digit code and opens the agent on the TV, which asks whether to
+   allow the pairing and shows a code of its own. If the two are the same,
+   choose **Allow** with the remote. The agent's entities then appear.
 4. **Grant the optional permissions.** Now-playing needs *Notification
    access* and the remote's battery and Find remote need *Bluetooth*, and on-screen messages
    and dashboards need *Display over other apps*. Press **Agent setup**
@@ -73,12 +79,26 @@ integration's options.
 ## Privacy and security
 
 - The agent serves HTTPS only, on port 8585, with its own certificate. The
-  integration pins that certificate when pairing, so nothing else on the
-  network can pose as the agent.
-- Once paired, it answers everything except its basic info only for the
-  holder of the pairing token.
+  integration pins that certificate before it pairs, so nothing else on the
+  network can pose as the agent. If the certificate ever changes (the app was
+  reinstalled), Home Assistant asks you before it pairs again.
+- Paired or not, it answers nothing but its basic info and a request to pair
+  unless the request carries the pairing token.
+- Pairing is allowed by a person at the TV, and by nothing else. The agent's
+  screen asks, naming the device that wants to pair and showing a six-digit
+  code; Home Assistant shows its own. They are the same only when the request
+  on the TV is the one Home Assistant made, to the agent itself and not to
+  something answering in its place. Another device on the network can ask to
+  pair, but the code it brings up is not the one you see in Home Assistant,
+  and Deny is the default. The agent's screen shows who is paired; holding
+  LEFT there removes the pairing.
+- An update is only ever the agent's own app, from an https address, checked
+  against its SHA-256, and Android asks you on screen before installing it.
 - The IP control key, when set, stays in the app's private storage on the
   TV. The agent uses it only for calls to the TV itself.
+
+The agent pairs with version 0.10.0 or later of the integration. An older
+integration cannot pair with it.
 
 ## Development
 
