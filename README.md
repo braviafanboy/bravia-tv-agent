@@ -27,8 +27,8 @@ been tested.
   what is playing. It signs in with short-lived tokens from Home Assistant,
   kept in memory only; the TV must be able to reach Home Assistant.
 - **Ambient brightness.** Optionally sets the picture Brightness from the room's
-  light level, with a curve per picture mode (SDR only). Runs on the TV, so it
-  keeps working while Home Assistant is down. Off by default.
+  light level, switched on and with a curve per picture mode (SDR only). Runs
+  on the TV, so it keeps working while Home Assistant is down. Off by default.
 
 The integration's [entity reference](https://github.com/braviafanboy/bravia-tv-grpc-homeassistant/blob/main/docs/entities.md)
 lists every entity the agent provides.

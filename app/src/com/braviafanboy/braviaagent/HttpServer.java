@@ -375,7 +375,7 @@ public final class HttpServer implements Server.Handler {
 
     /**
      * Ambient brightness. GET /v1/ambient: status and curves. POST
-     * /v1/ambient/config {"enabled", "learning"}; /v1/ambient/curve {"mode"?,
+     * /v1/ambient/config {"enabled", "learning", "mode"?}; /v1/ambient/curve {"mode"?,
      * "anchors": [6]}; /v1/ambient/reset {"mode"?}; /v1/ambient/curves
      * {"default"?, "modes"?}; /v1/ambient/context {"signal"}. A missing mode
      * means the current picture mode.
@@ -394,7 +394,10 @@ public final class HttpServer implements Server.Handler {
         try {
             switch (sub) {
                 case "/config":
-                    if (body.has("enabled")) ambient.setEnabled(body.optBoolean("enabled"));
+                    if (body.has("enabled")) {
+                        String forMode = body.optString("mode", "");
+                        ambient.setEnabled(forMode.isEmpty() ? null : forMode, body.optBoolean("enabled"));
+                    }
                     if (body.has("learning")) ambient.setLearning(body.optBoolean("learning"));
                     break;
                 case "/curve": {

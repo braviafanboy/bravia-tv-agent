@@ -434,14 +434,20 @@ picture mode, SDR only. It runs on the TV; Home Assistant edits and mirrors it.
 Off by default. State block `ambient` (also `GET /v1/ambient`):
 
 ```json
-{"enabled": true, "learning": false,
+{"enabled": true, "enabled_modes": ["professional"], "learning": false,
  "state": "active", "reason": null,
  "picture_mode": "professional", "brightness": 24, "target": 24, "lux": 31,
  "own_curve": false, "anchors_lux": [0, 10, 25, 60, 150, 500],
  "curve": [14, 14, 17, 24, 40, 40],
- "curves": {"default": [14, 14, 17, 24, 40, 40], "modes": {}}}
+ "curves": {"default": null, "modes": {}}}
 ```
 
+- `enabled`: whether it is on in the picture mode the TV is in.
+  `enabled_modes` lists every mode it is on in (0.10.0). It is switched on
+  and off per picture mode and remembered: in a mode it is off in, the
+  brightness is left alone, and switching back to a mode it is on in carries
+  on there. Until 0.9.1 it was one switch for the whole TV; an agent updated
+  from then keeps it on in the mode the TV is in when it first runs.
 - `state`: `off`, `active`, `paused` or `unavailable`. `reason` when not
   plainly active: `screen_off`, `hdr`, `manual`, `tv_auto_luminance`,
   `no_key`, `ip_control_unreachable`, `warming_up`, `no_light_sensor`.
@@ -463,7 +469,10 @@ Off by default. State block `ambient` (also `GET /v1/ambient`):
 
 All POSTs return the new block:
 
-- `POST /v1/ambient/config` `{"enabled"?, "learning"?}`.
+- `POST /v1/ambient/config` `{"enabled"?, "learning"?, "mode"?}`. `enabled`
+  applies to `mode`, or without one to the picture mode the TV is in, which
+  the agent reads from the TV at that moment (0.10.0). `learning` is one
+  setting for all modes.
 - `POST /v1/ambient/curve` `{"mode"?, "anchors": [6]}`: set a mode's curve
   (no mode: the current picture mode). Kept non-decreasing.
 - `POST /v1/ambient/reset` `{"mode"?}`: drop a mode's own curve.

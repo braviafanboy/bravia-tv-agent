@@ -243,8 +243,8 @@ public final class AgentService extends Service implements HttpServer.InfoProvid
             } else if ("ambient".equals(cmd)) {
                 // ambient | ambient on|off | ambient learn on|off | ambient reset
                 switch (sub) {
-                    case "on": ambient.setEnabled(true); break;
-                    case "off": ambient.setEnabled(false); break;
+                    case "on": ambient.setEnabled(null, true); break;
+                    case "off": ambient.setEnabled(null, false); break;
                     case "learn": ambient.setLearning(args.length > 2 && "on".equals(args[2])); break;
                     case "reset": ambient.resetCurve(null); break;
                     default: break;

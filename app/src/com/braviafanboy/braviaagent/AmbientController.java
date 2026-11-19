@@ -14,6 +14,7 @@ import android.util.Log;
 import com.braviafanboy.braviaagent.ambient.AmbientCurve;
 import com.braviafanboy.braviaagent.ambient.AmbientDecider;
 import com.braviafanboy.braviaagent.ambient.CurveBook;
+import com.braviafanboy.braviaagent.ambient.EnabledModes;
 import com.braviafanboy.braviaagent.ambient.LuxFloor;
 import com.braviafanboy.braviaagent.ambient.SignalHint;
 import com.braviafanboy.braviaagent.readers.PictureReader;
@@ -81,7 +82,8 @@ public final class AmbientController implements SensorEventListener {
     });
 
     // Guarded by this.
-    private boolean enabled;
+    /** The picture modes it is switched on in. */
+    private final EnabledModes switched = new EnabledModes();
     private boolean learning;
     /** The curves: each mode's own, a shared one, and each mode's start. */
     private final CurveBook book = new CurveBook();
@@ -91,9 +93,11 @@ public final class AmbientController implements SensorEventListener {
     private boolean listening;
 
     // Loop state, touched only on the ambient thread.
-    private long lastContextMs = Long.MIN_VALUE / 2;
+    private volatile long lastContextMs = Long.MIN_VALUE / 2;
     private JSONObject context;
     private String mode;
+    /** Treat the next read of the TV as a new start in its mode (it was just switched on there). */
+    private volatile boolean restart;
     private int lastWritten = -1;
     private long holdWritesUntil;
     private int manualCandidate = -1;
@@ -126,7 +130,9 @@ public final class AmbientController implements SensorEventListener {
     }
 
     private synchronized void reschedule() {
-        boolean run = enabled && panelOn && light != null;
+        // It runs while it is on in any mode: that is how a switch to such a
+        // mode is noticed. In a mode it is off in, it only watches.
+        boolean run = switched.any() && panelOn && light != null;
         if (run && ticking == null) {
             ticking = exec.scheduleWithFixedDelay(this::safeTick, 0, TICK_MS, TimeUnit.MILLISECONDS);
         } else if (!run) {
@@ -136,7 +142,7 @@ public final class AmbientController implements SensorEventListener {
             }
             // Say why it is not running, also when it never was (a TV
             // without a light sensor used to report a bare "off").
-            final boolean on = enabled, sensor = light != null;
+            final boolean on = switched.any(), sensor = light != null;
             exec.execute(() -> {
                 resetLoop();
                 if (!on) setState("off", null);
@@ -160,12 +166,35 @@ public final class AmbientController implements SensorEventListener {
 
     // ---- settings from Home Assistant ----------------------------------------
 
-    public synchronized void setEnabled(boolean on) {
-        if (on == enabled) return;
-        enabled = on;
-        prefs.edit().putBoolean("enabled", on).apply();
-        Log.i(TAG, "ambient: " + (on ? "enabled" : "disabled"));
+    /**
+     * Switch it on or off in a picture mode; {@code forMode} null means the
+     * mode the TV is in. Which mode that is, is read from the TV when it is
+     * switched on (the loop's next read), not taken from an older reading.
+     */
+    public synchronized void setEnabled(String forMode, boolean on) {
+        boolean changed;
+        if (forMode != null) {
+            changed = switched.set(forMode, on);
+        } else if (on) {
+            changed = !switched.isOn(mode) && switched.set(null, true);
+        } else {
+            changed = switched.set(null, false) | (mode != null && switched.set(mode, false));
+        }
+        if (!changed) return;
+        saveEnabled();
+        Log.i(TAG, "ambient: " + (on ? "enabled" : "disabled") + " for "
+            + (forMode != null ? forMode : on ? "the current picture mode" : mode));
+        // Start afresh in the mode: read the TV now, and take what it shows
+        // as the viewer's own.
+        restart = true;
+        lastContextMs = 0;
         reschedule();
+        exec.execute(this::publish);
+    }
+
+    /** On in the mode the TV is in, or switched on and waiting for that mode to be read. */
+    private synchronized boolean enabledNow() {
+        return switched.isOn(mode) || switched.pending();
     }
 
     public synchronized void setLearning(boolean on) {
@@ -259,9 +288,15 @@ public final class AmbientController implements SensorEventListener {
             lastContextMs = now;
             if (context != null) onFreshContext(now);
         }
-        boolean en;
-        synchronized (this) { en = enabled; }
-        if (!en) return;  // a manual change (learning off) may have just switched us off
+        if (!enabledNow()) {
+            // Off in this picture mode (or a manual change, with learning
+            // off, has just switched it off): leave the brightness alone.
+            if (!"off".equals(state) || lastWritten >= 0) {
+                resetLoop();
+                setState("off", null);
+            }
+            return;
+        }
         String why = blockedReason();
         if (why != null) {
             resetLoop();
@@ -314,21 +349,29 @@ public final class AmbientController implements SensorEventListener {
     private void onFreshContext(long now) {
         String newMode = value("pictureMode");
         int brightness = intValue("brightness");
-        if (newMode != null && !newMode.equals(mode)) {
-            synchronized (this) { mode = newMode; }
+        if (newMode != null && (!newMode.equals(mode) || restart)) {
+            restart = false;
             lastWritten = brightness;
             manualCandidate = -1;
             decider.reset();
-            // Nothing has been written in this mode yet, so its brightness is
-            // still the viewer's own: the start of this mode's curve.
             synchronized (this) {
-                if (book.start(newMode, brightness)) {
+                mode = newMode;
+                // Switched on "in the mode the TV is in": this is it.
+                if (switched.adopt(newMode)) saveEnabled();
+                // Where it is on, nothing has been written since the switch
+                // to this mode, so its brightness is still the viewer's own:
+                // the start of this mode's curve.
+                if (switched.isOn(newMode) && book.start(newMode, brightness)) {
                     save();
                     Log.i(TAG, "ambient: " + newMode + " starts from brightness " + brightness);
                 }
             }
+            exec.execute(this::publish);
             return;
         }
+        // In a mode it is off in, the brightness is none of its business:
+        // nothing to compare with what it wrote, and no hand change to learn.
+        if (!enabledNow()) return;
         if (brightness < 0 || lastWritten < 0) {
             lastWritten = brightness;
             return;
@@ -358,7 +401,7 @@ public final class AmbientController implements SensorEventListener {
             // Learning off: a hand change to the brightness turns ambient
             // brightness off until someone switches it back on. No auto-resume.
             Log.i(TAG, "ambient: disabled after a manual change to " + brightness);
-            setEnabled(false);
+            setEnabled(mode, false);
             return;
         }
         // Learning on: take the new value as this mode's brightness for the
@@ -403,7 +446,7 @@ public final class AmbientController implements SensorEventListener {
         // A mode that has no curve yet shows what it would start from. The
         // TV's brightness says that only while ambient brightness is off:
         // once it runs, the brightness is its own doing.
-        return book.curveFor(m, enabled ? -1 : knownBrightness());
+        return book.curveFor(m, switched.isOn(m) ? -1 : knownBrightness());
     }
 
     private void setState(String s, String why) {
@@ -424,7 +467,11 @@ public final class AmbientController implements SensorEventListener {
     public synchronized JSONObject status() {
         JSONObject o = new JSONObject();
         try {
+            // On in the picture mode the TV is in (or just switched on, and
+            // waiting for that mode to be read).
+            boolean enabled = switched.isOn(mode) || switched.pending();
             o.put("enabled", enabled);
+            o.put("enabled_modes", new JSONArray(switched.modes()));
             o.put("learning", learning);
             o.put("state", enabled ? state : "off");
             o.put("reason", enabled && reason != null ? reason : JSONObject.NULL);
@@ -463,8 +510,21 @@ public final class AmbientController implements SensorEventListener {
     }
 
     private synchronized void load() {
-        enabled = prefs.getBoolean("enabled", false);
         learning = prefs.getBoolean("learning", false);
+        try {
+            String modes = prefs.getString("enabled_modes", null);
+            if (modes != null) {
+                JSONArray a = new JSONArray(modes);
+                for (int i = 0; i < a.length(); i++) switched.set(a.getString(i), true);
+                if (prefs.getBoolean("enabled_pending", false)) switched.set(null, true);
+            } else if (prefs.getBoolean("enabled", false)) {
+                // From before 0.10, when it was one switch for the whole TV:
+                // it stays on in the mode the TV is in when this first runs.
+                switched.set(null, true);
+            }
+        } catch (Exception e) {
+            Log.w(TAG, "ambient: stored switches unreadable, starting off: " + e);
+        }
         try {
             String raw = prefs.getString("curves", null);
             if (raw != null) {
@@ -494,6 +554,11 @@ public final class AmbientController implements SensorEventListener {
         } catch (Exception e) {
             Log.w(TAG, "ambient: stored curves unreadable, starting fresh: " + e);
         }
+    }
+
+    private synchronized void saveEnabled() {
+        prefs.edit().putString("enabled_modes", new JSONArray(switched.modes()).toString())
+            .putBoolean("enabled_pending", switched.pending()).remove("enabled").apply();
     }
 
     private synchronized void save() {

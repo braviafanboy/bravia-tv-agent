@@ -13,6 +13,7 @@ public final class AmbientTest {
         decider();
         hint();
         book();
+        switches();
         System.out.println("ok: " + passed + " ambient checks passed");
     }
 
@@ -247,6 +248,38 @@ public final class AmbientTest {
         check(b.start("standard", 45), "starts are made again");
         b.restoreStart("photo", AmbientCurve.fromCurrent(30));
         eq(30, b.curveFor("photo", -1).values()[5], "a start read back from storage");
+    }
+
+    /** It is switched on per picture mode, and remembered. */
+    private static void switches() {
+        EnabledModes m = new EnabledModes();
+        check(!m.any() && !m.isOn("cinema") && !m.isOn(null), "off everywhere to begin with");
+        check(m.set("professional", true), "on in professional");
+        check(!m.set("professional", true), "switching it on again changes nothing");
+        check(m.isOn("professional") && !m.isOn("cinema"), "and only there");
+        check(m.any(), "so there is a mode to run in");
+        check(m.set("cinema", true) && m.isOn("cinema"), "on in cinema too");
+        check(m.set("professional", false) && !m.isOn("professional"), "off in professional");
+        check(m.isOn("cinema"), "which leaves cinema as it was: it is remembered per mode");
+        check(!m.set("vivid", false), "off where it never was on changes nothing");
+        eq("[cinema]", m.modes().toString(), "the modes it is on in");
+
+        // Switched on without naming the mode: the one the TV turns out to be in.
+        check(m.set(null, true) && m.pending(), "switched on before the mode is known");
+        check(m.isOn(null), "counts as on until then");
+        check(!m.isOn("standard"), "but not yet in any named mode");
+        check(!m.adopt(null), "an unknown mode adopts nothing");
+        check(m.adopt("standard") && !m.pending(), "the first mode seen takes it");
+        check(m.isOn("standard") && !m.isOn(null), "and that is that mode's, not the next one's");
+        check(!m.adopt("vivid") && !m.isOn("vivid"), "another mode gets nothing");
+        // Switched off again before the mode was known.
+        m.set(null, true);
+        check(m.set(null, false) && !m.pending(), "a waiting switch-on can be taken back");
+        check(!m.adopt("vivid"), "and then nothing is adopted");
+        // What an agent before 0.10 kept, one switch for the TV, is such a waiting switch-on.
+        EnabledModes old = new EnabledModes();
+        old.set(null, true);
+        check(old.any() && old.adopt("professional") && old.isOn("professional"), "it stays on in the mode in use");
     }
 
     private static void eq(Object expected, Object actual, String what) {

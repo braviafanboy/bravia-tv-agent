@@ -29,6 +29,11 @@ pair with this agent.
   disconnected, and could not finish an update.
 - Fix: with learning on, ambient brightness partly undid a brightness you had
   just set by hand (in a dark room, by as much as two thirds of the change).
+- Ambient brightness is switched on and off per picture mode, and
+  remembered: change to a mode it is off in and it leaves the brightness
+  alone, change back and it carries on. It was one switch for the whole TV;
+  if it was on, it stays on in the picture mode you are using when the update
+  first runs, and is off in the others until you switch it on there.
 - Ambient brightness starts each picture mode from that mode's own
   brightness. Before, the first mode it ran in set the starting curve for all
   of them, so a mode set much brighter was held down to it. A TV that already
