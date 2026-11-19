@@ -6,7 +6,7 @@ under a `## <version>` heading, newest first. Changes that are not released
 yet go under `## Unreleased`: rename that heading to the version when it is
 released (the workflow refuses a tag that has no section of its own).
 
-## Unreleased
+## 0.10.0
 
 Needs version 0.10.0 or later of the integration: an older integration cannot
 pair with this agent.
