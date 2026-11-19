@@ -13,6 +13,7 @@ import android.util.Log;
 
 import com.braviafanboy.braviaagent.ambient.AmbientCurve;
 import com.braviafanboy.braviaagent.ambient.AmbientDecider;
+import com.braviafanboy.braviaagent.ambient.CurveBook;
 import com.braviafanboy.braviaagent.ambient.LuxFloor;
 import com.braviafanboy.braviaagent.ambient.SignalHint;
 import com.braviafanboy.braviaagent.readers.PictureReader;
@@ -82,8 +83,8 @@ public final class AmbientController implements SensorEventListener {
     // Guarded by this.
     private boolean enabled;
     private boolean learning;
-    private AmbientCurve defaultCurve;
-    private final Map<String, AmbientCurve> modeCurves = new LinkedHashMap<>();
+    /** The curves: each mode's own, a shared one, and each mode's start. */
+    private final CurveBook book = new CurveBook();
     private boolean panelOn;
     private final SignalHint signal = new SignalHint();
     private ScheduledFuture<?> ticking;
@@ -173,24 +174,27 @@ public final class AmbientController implements SensorEventListener {
         exec.execute(this::publish);
     }
 
-    /** Set one mode's curve ({@code mode} null: the current picture mode, or the default before one is known). */
+    /** Set one mode's curve ({@code mode} null: the current picture mode, or the shared curve before one is known). */
     public synchronized void setCurve(String forMode, int[] anchors) {
         AmbientCurve c = new AmbientCurve(anchors);
-        String m = forMode != null ? forMode : mode;
-        if (m == null) defaultCurve = c; else modeCurves.put(m, c);
+        book.set(forMode != null ? forMode : mode, c);
         save();
         exec.execute(this::publish);
     }
 
-    /** Drop a mode's own curve so it follows the default again. */
+    /** Drop a mode's own curve so it follows the shared one, or its start, again. */
     public synchronized void resetCurve(String forMode) {
-        String m = forMode != null ? forMode : mode;
-        if (m != null) modeCurves.remove(m);
+        book.reset(forMode != null ? forMode : mode);
         save();
         exec.execute(this::publish);
     }
 
-    /** Replace all curves: {"default": [6], "modes": {"<picture mode>": [6], ...}}. */
+    /**
+     * Replace the curves a client manages: {"default": [6] or null, "modes":
+     * {"<picture mode>": [6], ...}}. A "default" of null removes the shared
+     * curve, so that each mode without its own follows its start; leaving
+     * "default" out keeps what there is.
+     */
     public synchronized void setCurves(JSONObject curves) {
         // Read all of it before changing anything: one bad curve must not
         // leave the others half replaced.
@@ -207,11 +211,7 @@ public final class AmbientController implements SensorEventListener {
                 if (a != null) newModes.put(k, new AmbientCurve(ints(a)));
             }
         }
-        if (newDefault != null) defaultCurve = newDefault;
-        if (newModes != null) {
-            modeCurves.clear();
-            modeCurves.putAll(newModes);
-        }
+        book.replace(newDefault, curves.has("default") && curves.isNull("default"), newModes);
         save();
         exec.execute(this::publish);
     }
@@ -319,10 +319,12 @@ public final class AmbientController implements SensorEventListener {
             lastWritten = brightness;
             manualCandidate = -1;
             decider.reset();
+            // Nothing has been written in this mode yet, so its brightness is
+            // still the viewer's own: the start of this mode's curve.
             synchronized (this) {
-                if (defaultCurve == null && brightness >= 0) {
-                    defaultCurve = AmbientCurve.fromCurrent(brightness);
+                if (book.start(newMode, brightness)) {
                     save();
+                    Log.i(TAG, "ambient: " + newMode + " starts from brightness " + brightness);
                 }
             }
             return;
@@ -368,7 +370,7 @@ public final class AmbientController implements SensorEventListener {
             synchronized (this) {
                 AmbientCurve before = curveFor(mode);
                 AmbientCurve after = before.learn(lux, brightness);
-                modeCurves.put(mode, after);
+                book.set(mode, after);
                 save();
                 Log.i(TAG, "ambient: learned " + brightness + " at " + Math.round(lux) + " lux for " + mode + ": " + before + " -> " + after);
             }
@@ -398,11 +400,10 @@ public final class AmbientController implements SensorEventListener {
     // ---- state ----------------------------------------------------------------
 
     private synchronized AmbientCurve curveFor(String m) {
-        AmbientCurve c = m == null ? null : modeCurves.get(m);
-        if (c != null) return c;
-        // Before the first brightness read there is no default yet: preview one
-        // without storing it, so the real one is built from the user's brightness.
-        return defaultCurve != null ? defaultCurve : AmbientCurve.fromCurrent(25);
+        // A mode that has no curve yet shows what it would start from. The
+        // TV's brightness says that only while ambient brightness is off:
+        // once it runs, the brightness is its own doing.
+        return book.curveFor(m, enabled ? -1 : knownBrightness());
     }
 
     private void setState(String s, String why) {
@@ -432,7 +433,7 @@ public final class AmbientController implements SensorEventListener {
             o.put("target", target >= 0 ? target : JSONObject.NULL);
             double d = decider.decidedLux();
             o.put("lux", Double.isNaN(d) ? JSONObject.NULL : Math.round(d));
-            o.put("own_curve", mode != null && modeCurves.containsKey(mode));
+            o.put("own_curve", book.hasOwn(mode));
             o.put("anchors_lux", luxAxis());
             o.put("curve", new JSONArray(curveFor(mode).values()));
             o.put("curves", curvesJson());
@@ -443,11 +444,16 @@ public final class AmbientController implements SensorEventListener {
 
     private JSONObject curvesJson() throws Exception {
         JSONObject c = new JSONObject();
-        c.put("default", defaultCurve == null ? JSONObject.NULL : new JSONArray(defaultCurve.values()));
-        JSONObject m = new JSONObject();
-        for (Map.Entry<String, AmbientCurve> e : modeCurves.entrySet()) m.put(e.getKey(), new JSONArray(e.getValue().values()));
-        c.put("modes", m);
+        AmbientCurve shared = book.shared();
+        c.put("default", shared == null ? JSONObject.NULL : new JSONArray(shared.values()));
+        c.put("modes", curvesOf(book.own()));
         return c;
+    }
+
+    private static JSONObject curvesOf(Map<String, AmbientCurve> curves) throws Exception {
+        JSONObject m = new JSONObject();
+        for (Map.Entry<String, AmbientCurve> e : curves.entrySet()) m.put(e.getKey(), new JSONArray(e.getValue().values()));
+        return m;
     }
 
     private static JSONArray luxAxis() {
@@ -464,15 +470,25 @@ public final class AmbientController implements SensorEventListener {
             if (raw != null) {
                 JSONObject c = new JSONObject(raw);
                 JSONArray d = c.optJSONArray("default");
-                if (d != null) defaultCurve = new AmbientCurve(ints(d));
+                if (d != null) book.set(null, new AmbientCurve(ints(d)));
                 JSONObject modes = c.optJSONObject("modes");
                 if (modes != null) {
                     Iterator<String> it = modes.keys();
                     while (it.hasNext()) {
                         String k = it.next();
                         JSONArray a = modes.optJSONArray(k);
-                        if (a != null) modeCurves.put(k, new AmbientCurve(ints(a)));
+                        if (a != null) book.set(k, new AmbientCurve(ints(a)));
                     }
+                }
+            }
+            String starts = prefs.getString("starts", null);
+            if (starts != null) {
+                JSONObject st = new JSONObject(starts);
+                Iterator<String> it = st.keys();
+                while (it.hasNext()) {
+                    String k = it.next();
+                    JSONArray a = st.optJSONArray(k);
+                    if (a != null) book.restoreStart(k, new AmbientCurve(ints(a)));
                 }
             }
         } catch (Exception e) {
@@ -482,13 +498,27 @@ public final class AmbientController implements SensorEventListener {
 
     private synchronized void save() {
         try {
-            prefs.edit().putString("curves", curvesJson().toString()).apply();
+            prefs.edit().putString("curves", curvesJson().toString())
+                .putString("starts", curvesOf(book.starts()).toString()).apply();
         } catch (Exception e) {
             Log.w(TAG, "ambient: saving curves failed: " + e);
         }
     }
 
     // ---- helpers ----------------------------------------------------------------
+
+    /** The Brightness slider as the agent last read it for its state, or -1. */
+    private int knownBrightness() {
+        try {
+            JSONObject picture = store.snapshot().optJSONObject("picture");
+            JSONObject targets = picture == null ? null : picture.optJSONObject("targets");
+            JSONObject b = targets == null ? null : targets.optJSONObject("brightness");
+            String v = b == null ? null : b.optString("value", null);
+            return v == null || v.isEmpty() ? -1 : (int) Math.round(Double.parseDouble(v));
+        } catch (Exception e) {
+            return -1;
+        }
+    }
 
     /** The agent's last published lux (seeds the loop before the sensor reports). */
     private double knownLux() {

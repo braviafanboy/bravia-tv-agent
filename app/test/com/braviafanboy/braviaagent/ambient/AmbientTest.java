@@ -12,6 +12,7 @@ public final class AmbientTest {
         floor();
         decider();
         hint();
+        book();
         System.out.println("ok: " + passed + " ambient checks passed");
     }
 
@@ -198,6 +199,54 @@ public final class AmbientTest {
         eq(-1, p.step(s + 9000, 20, 21), "1 step: still waiting at 9 s");
         eq(21, p.step(s + 10_000, 20, 21), "1 step: after 10 s");
         eq(20, new AmbientDecider().step(s, 21, 19), "dims too, one step at a time");
+    }
+
+    /** Which curve a picture mode follows, and where a mode's first curve comes from. */
+    private static void book() {
+        CurveBook b = new CurveBook();
+        // Nothing stored: a preview, from the brightness given or the fallback.
+        eq(40, b.curveFor("cinema", -1).values()[5], "unknown brightness: the fallback, 40");
+        eq(50, b.curveFor("cinema", 50).values()[5], "a preview reaches the brightness the mode has");
+        eq(10, b.curveFor(null, 10).values()[5], "also before the mode is known");
+        check(b.starts().isEmpty() && b.own().isEmpty() && b.shared() == null, "a preview stores nothing");
+
+        // Each mode starts from its own brightness, once.
+        check(b.start("professional", 10), "professional starts from 10");
+        check(b.start("cinema", 50), "cinema from 50");
+        eq(10, b.curveFor("professional", -1).values()[5], "professional reaches 10 in a bright room");
+        eq(50, b.curveFor("cinema", -1).values()[5], "cinema reaches 50");
+        check(!b.start("cinema", 7), "a later reading (ambient's own doing) does not replace the start");
+        eq(50, b.curveFor("cinema", 7).values()[5], "nor does it show in the curve");
+        check(!b.start(null, 30) && !b.start("vivid", -1), "no mode, or no reading: no start");
+        eq(40, b.curveFor("vivid", -1).values()[5], "a mode without one is still previewed");
+
+        // Its own curve comes first; a reset goes back to the start.
+        AmbientCurve learnt = b.curveFor("cinema", -1).learn(5, 20);
+        b.set("cinema", learnt);
+        check(b.hasOwn("cinema") && !b.hasOwn("professional"), "only cinema has its own");
+        eq(learnt.toString(), b.curveFor("cinema", -1).toString(), "which it follows");
+        check(!b.start("cinema", 30), "a mode with its own curve gets no new start");
+        b.reset("cinema");
+        eq(50, b.curveFor("cinema", -1).values()[5], "reset: back to its start, not to another mode's");
+
+        // A shared curve (set by a client, or kept from an older agent) is
+        // for every mode without its own, and comes before the starts.
+        AmbientCurve shared = new AmbientCurve(new int[] {4, 4, 4, 6, 10, 10});
+        b.set(null, shared);
+        eq(10, b.curveFor("cinema", -1).values()[5], "the shared curve applies to cinema");
+        check(!b.start("standard", 45), "and no starts are made while there is one");
+        b.set("cinema", learnt);
+        eq(learnt.toString(), b.curveFor("cinema", -1).toString(), "a mode's own curve still wins");
+        java.util.Map<String, AmbientCurve> replaced = new java.util.LinkedHashMap<>();
+        replaced.put("vivid", shared);
+        b.replace(null, false, replaced);
+        check(b.shared() == shared && b.hasOwn("vivid") && !b.hasOwn("cinema"), "replacing the modes keeps the shared curve");
+        b.replace(null, true, null);
+        check(b.shared() == null && b.hasOwn("vivid"), "clearing the shared curve keeps the modes");
+        eq(50, b.curveFor("cinema", -1).values()[5], "and cinema is back on its own start");
+        check(b.start("standard", 45), "starts are made again");
+        b.restoreStart("photo", AmbientCurve.fromCurrent(30));
+        eq(30, b.curveFor("photo", -1).values()[5], "a start read back from storage");
     }
 
     private static void eq(Object expected, Object actual, String what) {

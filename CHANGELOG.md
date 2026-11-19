@@ -29,6 +29,11 @@ pair with this agent.
   disconnected, and could not finish an update.
 - Fix: with learning on, ambient brightness partly undid a brightness you had
   just set by hand (in a dark room, by as much as two thirds of the change).
+- Ambient brightness starts each picture mode from that mode's own
+  brightness. Before, the first mode it ran in set the starting curve for all
+  of them, so a mode set much brighter was held down to it. A TV that already
+  has that one curve keeps it; set the curves with a default of null to drop
+  it.
 - Fix: ambient brightness stayed paused in SDR when Home Assistant had gone
   away during HDR; it now falls back on its own reading after two minutes.
 - Fix: a dashboard whose page crashed, or ran out of memory, took the whole

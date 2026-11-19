@@ -446,9 +446,18 @@ Off by default. State block `ambient` (also `GET /v1/ambient`):
   plainly active: `screen_off`, `hdr`, `manual`, `tv_auto_luminance`,
   `no_key`, `ip_control_unreachable`, `warming_up`, `no_light_sensor`.
 - `curve`: the current picture mode's six slider values (0..50) at
-  `anchors_lux`, interpolated in log-lux; the mode's own curve if it has one,
-  otherwise the default. The default is built on first use from the user's
-  brightness, shaped like Sony's own auto-luminance curve.
+  `anchors_lux`, interpolated in log-lux. It is the mode's own curve if it
+  has one (learnt, or set by a client); else the shared `default`, if there
+  is one; else the mode's start. A start is built once per picture mode, from
+  the brightness that mode had the first time ambient brightness ran in it,
+  shaped like Sony's own auto-luminance curve and reaching that brightness in
+  a bright room (0.10.0; before, one curve built from the first mode's
+  brightness served every mode). Until a mode has a start, `curve` previews
+  it from the TV's current brightness (from 40 if that was never read).
+  Starts are the agent's own: they are not part of `curves`, and resetting a
+  mode falls back to its start.
+- `curves.default` is null unless a client set one, or the agent made one
+  before 0.10.0.
 - `lux`: the room level last acted on (a low percentile of the sensor over
   45 s, so bright scenes don't count).
 
@@ -460,7 +469,8 @@ All POSTs return the new block:
 - `POST /v1/ambient/reset` `{"mode"?}`: drop a mode's own curve.
 - `POST /v1/ambient/curves` `{"default"?, "modes"?}`: replace all curves.
   All or nothing: a curve that is not six values leaves every curve as it
-  was (0.10.0).
+  was (0.10.0). `"default": null` removes the shared curve, so that each mode
+  without its own follows its start; leaving `default` out keeps it (0.10.0).
 - `POST /v1/ambient/context` `{"signal": "sdr" | "hdr10" | "dolby_vision" | ...}`:
   the video's dynamic range class from Home Assistant's gRPC signal. The agent
   also treats HDR tone mapping being available as HDR, for when Home
