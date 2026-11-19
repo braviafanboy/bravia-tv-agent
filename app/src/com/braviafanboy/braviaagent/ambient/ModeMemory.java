@@ -39,9 +39,15 @@ public final class ModeMemory {
      * slider shows, unless that is only what ambient left behind.
      */
     public int switchedOn(String mode, int brightness) {
-        own.put(mode, viewers(mode, brightness));
+        Integer mine = own.get(mode), last = left.get(mode);
+        // Still showing what ambient left behind: that stays on record, so
+        // that switching off again gives the viewer's own back even if
+        // nothing is written in between (found on a TV: off during HDR, on
+        // and off again in SDR, and the slider was left dimmed).
+        if (mine != null && last != null && brightness == last) return mine;
+        own.put(mode, brightness);
         left.remove(mode);
-        return own.get(mode);
+        return brightness;
     }
 
     /**

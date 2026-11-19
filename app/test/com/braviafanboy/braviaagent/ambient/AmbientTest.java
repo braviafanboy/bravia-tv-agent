@@ -320,6 +320,18 @@ public final class AmbientTest {
         m.wrote("professional", 2);
         eq(5, m.switchedOn("professional", 2), "and again: it does not creep down");
 
+        // As it happened on a TV: off during HDR (nothing put back), on
+        // again in SDR where the target is the 3 it already shows (so nothing
+        // is written), off again: the viewer's 5 must come back.
+        ModeMemory tv = new ModeMemory();
+        tv.switchedOn("professional", 5);
+        tv.wrote("professional", 3);
+        eq(5, tv.switchedOn("professional", 3), "on again where ambient left it: the start is from 5");
+        eq(3, tv.left("professional"), "and the 3 on the slider is still on record as ambient's");
+        eq(5, tv.switchedOff("professional", 3), "off without a write in between: 5 goes back");
+        eq(5, tv.switchedOn("professional", 5), "then everything is as at the beginning");
+        eq(-1, tv.left("professional"), "with nothing owed");
+
         // The viewer moved the slider while it was off: that is theirs.
         m.wrote("professional", 3);
         eq(8, m.switchedOn("professional", 8), "a brightness ambient did not leave is the viewer's");

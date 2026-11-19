@@ -241,6 +241,10 @@ public final class AmbientController implements SensorEventListener {
         try {
             picture.writeTargetQuiet("brightness", String.valueOf(back));
             Log.i(TAG, "ambient: " + m + " has its brightness back: " + back);
+            // Show it at once: the picture block, and the curve that is
+            // previewed from it.
+            picture.publish();
+            publish();
         } catch (PictureReader.WriteException e) {
             Log.w(TAG, "ambient: could not put the brightness back: " + e.code);
         }
@@ -258,7 +262,6 @@ public final class AmbientController implements SensorEventListener {
      * it runs, a change makes it look at the TV at once.
      */
     public synchronized void onPictureMode(String pictureMode) {
-        boolean changed = !pictureMode.equals(tvMode);
         tvMode = pictureMode;
         if (ticking != null) {
             if (!pictureMode.equals(mode)) {
@@ -267,10 +270,11 @@ public final class AmbientController implements SensorEventListener {
             }
             return;
         }
-        // Stopped. Start in a mode it is on in; otherwise there is only the
-        // other mode's setting to show.
+        // Stopped. Start in a mode it is on in; otherwise show the mode's
+        // setting, and the curve it would start from for the brightness just
+        // read (an unchanged block is not sent again).
         if (switched.pending() || switched.isOn(pictureMode)) reschedule();
-        else if (changed) exec.execute(this::publish);
+        else exec.execute(this::publish);
     }
 
     public synchronized void setLearning(boolean on) {
@@ -544,7 +548,9 @@ public final class AmbientController implements SensorEventListener {
         // A mode that has no curve yet shows what it would start from. The
         // TV's brightness says that only while ambient brightness is off:
         // once it runs, the brightness is its own doing.
-        return book.curveFor(m, switched.isOn(m) ? -1 : memory.viewers(m, knownBrightness()));
+        // (Nor during HDR, whose brightness is another value altogether.)
+        boolean viewers = !switched.isOn(m) && !signal.hdr();
+        return book.curveFor(m, viewers ? memory.viewers(m, knownBrightness()) : -1);
     }
 
     private void setState(String s, String why) {
