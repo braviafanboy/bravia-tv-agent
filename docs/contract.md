@@ -451,8 +451,12 @@ Off by default. State block `ambient` (also `GET /v1/ambient`):
 - In a mode it is off in, nothing runs. The agent learns that the TV changed
   picture mode from its picture reads: the regular one (`poll_s`), or at once
   when a client that saw the change calls `POST /v1/picture/refresh` (the
-  integration does). While it runs it notices a change by itself within 5 s,
-  and it checks the mode again before every write.
+  integration does). While it runs it notices a change by itself within 5 s.
+- Immediately before every write it reads the slider, the picture mode and
+  whether HDR is showing straight from the TV, and writes only if none has
+  changed and all three could be read. So a value worked out for one mode's
+  SDR slider is not written into another mode, into the HDR values of a clip
+  that has just started, or over a hand change.
 - `state`: `off`, `active`, `paused` or `unavailable`. `reason` when not
   plainly active: `screen_off`, `hdr`, `manual`, `tv_auto_luminance`,
   `no_key`, `ip_control_unreachable`, `warming_up`, `no_light_sensor`.

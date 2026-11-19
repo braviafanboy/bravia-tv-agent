@@ -15,6 +15,7 @@ public final class AmbientTest {
         book();
         switches();
         memory();
+        lastLook();
         System.out.println("ok: " + passed + " ambient checks passed");
     }
 
@@ -370,6 +371,24 @@ public final class AmbientTest {
         eq(40, v.viewers("standard", 25), "what ambient left behind is not the viewer's");
         eq(33, v.viewers("standard", 33), "another value is");
         eq(-1, v.viewers("standard", -1), "an unknown brightness stays unknown");
+    }
+
+    /** The last look at the TV before a write. */
+    private static void lastLook() {
+        eq("WRITE", WriteCheck.verdict("cinema", 30, "cinema", 30, false), "nothing changed: write");
+        eq("MOVED", WriteCheck.verdict("cinema", 30, "cinema", 34, false), "the viewer moved the slider");
+        eq("MODE_CHANGED", WriteCheck.verdict("cinema", 30, "standard", 30, false), "another picture mode, same number");
+        // An HDR clip started in the seconds since the loop last read the
+        // TV. Usually the slider jumps with it; it need not.
+        eq("HDR", WriteCheck.verdict("cinema", 50, "cinema", 50, true), "HDR with the very same brightness: still no write");
+        eq("HDR", WriteCheck.verdict("cinema", 30, "cinema", 50, true), "HDR with another brightness is HDR, not a hand change");
+        eq("MODE_CHANGED", WriteCheck.verdict("cinema", 30, "standard", 30, true), "another mode comes first");
+        // Whatever cannot be read is not written into.
+        eq("UNREADABLE", WriteCheck.verdict("cinema", 30, "cinema", -1, false), "no brightness read");
+        eq("UNREADABLE", WriteCheck.verdict("cinema", 30, null, 30, false), "no picture mode read");
+        eq("UNREADABLE", WriteCheck.verdict("cinema", 30, "", 30, false), "an empty one");
+        eq("UNREADABLE", WriteCheck.verdict("cinema", 30, null, -1, true), "nothing read at all");
+        eq("WRITE", WriteCheck.verdict("cinema", 0, "cinema", 0, false), "zero is a value like any other");
     }
 
     private static void eq(Object expected, Object actual, String what) {

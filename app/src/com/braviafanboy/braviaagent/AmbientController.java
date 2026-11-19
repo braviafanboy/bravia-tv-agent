@@ -18,6 +18,7 @@ import com.braviafanboy.braviaagent.ambient.EnabledModes;
 import com.braviafanboy.braviaagent.ambient.LuxFloor;
 import com.braviafanboy.braviaagent.ambient.ModeMemory;
 import com.braviafanboy.braviaagent.ambient.SignalHint;
+import com.braviafanboy.braviaagent.ambient.WriteCheck;
 import com.braviafanboy.braviaagent.readers.PictureReader;
 
 import org.json.JSONArray;
@@ -58,8 +59,7 @@ public final class AmbientController implements SensorEventListener {
     private static final String PREFS = "ambient";
     private static final long TICK_MS = 1000;
     private static final long CONTEXT_EVERY_MS = 5000;
-    /** What the read before a write answers when the TV has changed picture mode. */
-    private static final int MODE_CHANGED = -2;
+    private static final List<String> LAST_LOOK_TARGETS = Arrays.asList("brightness", "pictureMode", "hdrToneMapping");
     private static final long MANUAL_SETTLE_MS = 5000;  // settle before learning or switching off
     private static final long WRITE_RETRY_MS = 10000;  // after the TV refused a write
     private static final int SAMPLING_US = 200_000;  // 5 Hz while active
@@ -404,18 +404,17 @@ public final class AmbientController implements SensorEventListener {
             // the slider has moved underneath us, treat it as a manual change
             // now: force a fresh context read so the normal handling runs next
             // tick, and don't write.
-            int live = liveBrightness();
-            if (live == MODE_CHANGED) {
-                // The TV is in another picture mode than the one this value
-                // was worked out for: write nothing, look again.
-                context = null;
-                lastContextMs = 0;
-                return;
-            }
-            if (live >= 0 && live != lastWritten) {
-                context = null;
-                lastContextMs = 0;
-                setState("paused", "manual");
+            WriteCheck.Verdict verdict = lastLook();
+            if (verdict != WriteCheck.Verdict.WRITE) {
+                // The slider is not (or cannot be shown to be) the one this
+                // value was worked out for: write nothing. Unless the TV just
+                // did not answer, read it afresh, so that the next tick deals
+                // with what changed (another mode, HDR, a hand change).
+                if (verdict != WriteCheck.Verdict.UNREADABLE) {
+                    context = null;
+                    lastContextMs = 0;
+                }
+                if (verdict == WriteCheck.Verdict.MOVED) setState("paused", "manual");
                 return;
             }
             try {
@@ -742,23 +741,28 @@ public final class AmbientController implements SensorEventListener {
         }
     }
 
-    /** A fresh read of the Brightness slider straight from the TV (not the 5 s
-     *  context cache), or -1. Used to catch a hand change before the loop writes
-     *  so it never overwrites or fights one. */
-    private int liveBrightness() {
-        JSONObject now = picture.readTargetsNow(Arrays.asList("brightness", "pictureMode"));
-        if (now == null) return -1;
+    /**
+     * The last look at the TV before a write (see {@link WriteCheck}): the
+     * slider, the picture mode and whether HDR is showing, read straight
+     * from the TV and not from the context of up to five seconds ago.
+     */
+    private WriteCheck.Verdict lastLook() {
+        JSONObject now = picture.readTargetsNow(LAST_LOOK_TARGETS);
+        if (now == null) return WriteCheck.Verdict.UNREADABLE;
         JSONObject pm = now.optJSONObject("pictureMode");
-        String liveMode = pm == null ? null : pm.optString("value", null);
-        if (liveMode != null && !liveMode.isEmpty() && mode != null && !liveMode.equals(mode)) return MODE_CHANGED;
-        JSONObject t = now.optJSONObject("brightness");
-        if (t == null) return -1;
+        JSONObject b = now.optJSONObject("brightness");
+        JSONObject tone = now.optJSONObject("hdrToneMapping");
+        int live = -1;
         try {
-            String v = t.optString("value", null);
-            return v == null ? -1 : (int) Math.round(Double.parseDouble(v));
+            String v = b == null ? null : b.optString("value", null);
+            if (v != null && !v.isEmpty()) live = (int) Math.round(Double.parseDouble(v));
         } catch (NumberFormatException e) {
-            return -1;
+            live = -1;
         }
+        // HDR tone mapping can only be set while HDR is showing: the same
+        // sign the loop goes by, here without the wait for its next read.
+        boolean hdr = signal.hdr() || (tone != null && tone.optBoolean("available", false));
+        return WriteCheck.verdict(mode, lastWritten, pm == null ? null : pm.optString("value", null), live, hdr);
     }
 
     static int[] ints(JSONArray a) {
