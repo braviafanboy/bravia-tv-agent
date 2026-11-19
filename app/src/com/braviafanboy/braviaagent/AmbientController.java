@@ -57,6 +57,8 @@ public final class AmbientController implements SensorEventListener {
     private static final String PREFS = "ambient";
     private static final long TICK_MS = 1000;
     private static final long CONTEXT_EVERY_MS = 5000;
+    /** What the read before a write answers when the TV has changed picture mode. */
+    private static final int MODE_CHANGED = -2;
     private static final long MANUAL_SETTLE_MS = 5000;  // settle before learning or switching off
     private static final long WRITE_RETRY_MS = 10000;  // after the TV refused a write
     private static final int SAMPLING_US = 200_000;  // 5 Hz while active
@@ -84,6 +86,12 @@ public final class AmbientController implements SensorEventListener {
     // Guarded by this.
     /** The picture modes it is switched on in. */
     private final EnabledModes switched = new EnabledModes();
+    /**
+     * The picture mode as the picture reader last saw it. While the loop is
+     * not running this is all that is known of the mode, and what starts the
+     * loop again when the TV is switched to a mode it is on in.
+     */
+    private String tvMode;
     private boolean learning;
     /** The curves: each mode's own, a shared one, and each mode's start. */
     private final CurveBook book = new CurveBook();
@@ -130,10 +138,15 @@ public final class AmbientController implements SensorEventListener {
     }
 
     private synchronized void reschedule() {
-        // It runs while it is on in any mode: that is how a switch to such a
-        // mode is noticed. In a mode it is off in, it only watches.
-        boolean run = switched.any() && panelOn && light != null;
+        // It runs only in a picture mode it is on in (or to find out which
+        // mode the TV is in, when it was just switched on). In other modes
+        // nothing runs: the picture reader says when the mode changes.
+        final boolean wanted = switched.pending() || switched.isOn(ticking != null ? mode : tvMode);
+        boolean run = wanted && panelOn && light != null;
         if (run && ticking == null) {
+            // Whatever was known of the TV is old: begin with a fresh read.
+            restart = true;
+            lastContextMs = 0;
             ticking = exec.scheduleWithFixedDelay(this::safeTick, 0, TICK_MS, TimeUnit.MILLISECONDS);
         } else if (!run) {
             if (ticking != null) {
@@ -142,10 +155,10 @@ public final class AmbientController implements SensorEventListener {
             }
             // Say why it is not running, also when it never was (a TV
             // without a light sensor used to report a bare "off").
-            final boolean on = switched.any(), sensor = light != null;
+            final boolean sensor = light != null;
             exec.execute(() -> {
                 resetLoop();
-                if (!on) setState("off", null);
+                if (!wanted) setState("off", null);
                 else if (!sensor) setState("unavailable", "no_light_sensor");
                 else setState("paused", "screen_off");
             });
@@ -173,17 +186,22 @@ public final class AmbientController implements SensorEventListener {
      */
     public synchronized void setEnabled(String forMode, boolean on) {
         boolean changed;
+        // The mode the TV is in: the loop's own reading while it runs, else
+        // the picture reader's, which can be a minute old.
+        String current = ticking != null ? mode : tvMode;
         if (forMode != null) {
             changed = switched.set(forMode, on);
         } else if (on) {
-            changed = !switched.isOn(mode) && switched.set(null, true);
+            // Unless the loop already runs in a mode it is on in, let the
+            // loop's first read say which mode this is for.
+            changed = !(ticking != null && switched.isOn(mode)) && switched.set(null, true);
         } else {
-            changed = switched.set(null, false) | (mode != null && switched.set(mode, false));
+            changed = switched.set(null, false) | (current != null && switched.set(current, false));
         }
         if (!changed) return;
         saveEnabled();
         Log.i(TAG, "ambient: " + (on ? "enabled" : "disabled") + " for "
-            + (forMode != null ? forMode : on ? "the current picture mode" : mode));
+            + (forMode != null ? forMode : on ? "the current picture mode" : current));
         // Start afresh in the mode: read the TV now, and take what it shows
         // as the viewer's own.
         restart = true;
@@ -195,6 +213,28 @@ public final class AmbientController implements SensorEventListener {
     /** On in the mode the TV is in, or switched on and waiting for that mode to be read. */
     private synchronized boolean enabledNow() {
         return switched.isOn(mode) || switched.pending();
+    }
+
+    /**
+     * The picture reader read the TV's picture settings: its regular read,
+     * or one Home Assistant asked for because it saw the mode change. While
+     * the loop is stopped, this is what starts it in a mode it is on in; while
+     * it runs, a change makes it look at the TV at once.
+     */
+    public synchronized void onPictureMode(String pictureMode) {
+        boolean changed = !pictureMode.equals(tvMode);
+        tvMode = pictureMode;
+        if (ticking != null) {
+            if (!pictureMode.equals(mode)) {
+                restart = true;
+                lastContextMs = 0;
+            }
+            return;
+        }
+        // Stopped. Start in a mode it is on in; otherwise there is only the
+        // other mode's setting to show.
+        if (switched.pending() || switched.isOn(pictureMode)) reschedule();
+        else if (changed) exec.execute(this::publish);
     }
 
     public synchronized void setLearning(boolean on) {
@@ -291,9 +331,9 @@ public final class AmbientController implements SensorEventListener {
         if (!enabledNow()) {
             // Off in this picture mode (or a manual change, with learning
             // off, has just switched it off): leave the brightness alone.
-            if (!"off".equals(state) || lastWritten >= 0) {
-                resetLoop();
-                setState("off", null);
+            synchronized (this) {
+                tvMode = mode;
+                reschedule();  // stops the loop, and says "off"
             }
             return;
         }
@@ -325,6 +365,13 @@ public final class AmbientController implements SensorEventListener {
             // now: force a fresh context read so the normal handling runs next
             // tick, and don't write.
             int live = liveBrightness();
+            if (live == MODE_CHANGED) {
+                // The TV is in another picture mode than the one this value
+                // was worked out for: write nothing, look again.
+                context = null;
+                lastContextMs = 0;
+                return;
+            }
             if (live >= 0 && live != lastWritten) {
                 context = null;
                 lastContextMs = 0;
@@ -469,20 +516,21 @@ public final class AmbientController implements SensorEventListener {
         try {
             // On in the picture mode the TV is in (or just switched on, and
             // waiting for that mode to be read).
-            boolean enabled = switched.isOn(mode) || switched.pending();
+            String shown = ticking != null && mode != null ? mode : tvMode != null ? tvMode : mode;
+            boolean enabled = switched.isOn(shown) || switched.pending();
             o.put("enabled", enabled);
             o.put("enabled_modes", new JSONArray(switched.modes()));
             o.put("learning", learning);
             o.put("state", enabled ? state : "off");
             o.put("reason", enabled && reason != null ? reason : JSONObject.NULL);
-            o.put("picture_mode", mode != null ? mode : JSONObject.NULL);
+            o.put("picture_mode", shown != null ? shown : JSONObject.NULL);
             o.put("brightness", lastWritten >= 0 ? lastWritten : JSONObject.NULL);
             o.put("target", target >= 0 ? target : JSONObject.NULL);
             double d = decider.decidedLux();
             o.put("lux", Double.isNaN(d) ? JSONObject.NULL : Math.round(d));
-            o.put("own_curve", book.hasOwn(mode));
+            o.put("own_curve", book.hasOwn(shown));
             o.put("anchors_lux", luxAxis());
-            o.put("curve", new JSONArray(curveFor(mode).values()));
+            o.put("curve", new JSONArray(curveFor(shown).values()));
             o.put("curves", curvesJson());
         } catch (Exception ignored) {
         }
@@ -618,8 +666,11 @@ public final class AmbientController implements SensorEventListener {
      *  context cache), or -1. Used to catch a hand change before the loop writes
      *  so it never overwrites or fights one. */
     private int liveBrightness() {
-        JSONObject now = picture.readTargetsNow(Arrays.asList("brightness"));
+        JSONObject now = picture.readTargetsNow(Arrays.asList("brightness", "pictureMode"));
         if (now == null) return -1;
+        JSONObject pm = now.optJSONObject("pictureMode");
+        String liveMode = pm == null ? null : pm.optString("value", null);
+        if (liveMode != null && !liveMode.isEmpty() && mode != null && !liveMode.equals(mode)) return MODE_CHANGED;
         JSONObject t = now.optJSONObject("brightness");
         if (t == null) return -1;
         try {

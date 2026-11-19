@@ -448,6 +448,11 @@ Off by default. State block `ambient` (also `GET /v1/ambient`):
   brightness is left alone, and switching back to a mode it is on in carries
   on there. Until 0.9.1 it was one switch for the whole TV; an agent updated
   from then keeps it on in the mode the TV is in when it first runs.
+- In a mode it is off in, nothing runs. The agent learns that the TV changed
+  picture mode from its picture reads: the regular one (`poll_s`), or at once
+  when a client that saw the change calls `POST /v1/picture/refresh` (the
+  integration does). While it runs it notices a change by itself within 5 s,
+  and it checks the mode again before every write.
 - `state`: `off`, `active`, `paused` or `unavailable`. `reason` when not
   plainly active: `screen_off`, `hdr`, `manual`, `tv_auto_luminance`,
   `no_key`, `ip_control_unreachable`, `warming_up`, `no_light_sensor`.

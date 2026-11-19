@@ -168,6 +168,29 @@ public final class PictureReader {
 
     // ---- reads ------------------------------------------------------------
 
+    /** Told the picture mode after every read that shows one. */
+    public interface ModeListener {
+        void onPictureMode(String mode);
+    }
+
+    private volatile ModeListener modeListener;
+
+    /** Ambient brightness follows the picture mode, and learns of a change here rather than by asking. */
+    public void setModeListener(ModeListener listener) {
+        modeListener = listener;
+    }
+
+    private void tellMode() {
+        ModeListener l = modeListener;
+        if (l == null) return;
+        String m;
+        synchronized (this) {
+            JSONObject t = targets == null ? null : targets.optJSONObject("pictureMode");
+            m = t == null ? null : t.optString("value", null);
+        }
+        if (m != null && !m.isEmpty()) l.onPictureMode(m);
+    }
+
     /** Full read now (coalesced: one already queued covers this request). */
     public void refresh() {
         if (!fullQueued.compareAndSet(false, true)) return;
@@ -234,6 +257,7 @@ public final class PictureReader {
         }
         if (changed > 0) Log.i(TAG, "picture: " + changed + " settings changed");
         publish();
+        tellMode();
         return avail;
     }
 
@@ -256,6 +280,7 @@ public final class PictureReader {
         }
         if (!ok) synchronized (this) { available = false; targets = null; powerSaving = null; }
         publish();
+        tellMode();
         return ok;
     }
 

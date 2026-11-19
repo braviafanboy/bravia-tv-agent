@@ -111,6 +111,7 @@ public final class AgentService extends Service implements HttpServer.InfoProvid
         restAuth = new RestAuth(this);
         picture = new PictureReader(this, store, rest, restAuth);
         ambient = new AmbientController(this, store, picture);
+        picture.setModeListener(ambient::onPictureMode);
         remoteFinder = new RemoteFinder(this, store);
         notifier = new Notifier(this);
         dashboard = new com.braviafanboy.braviaagent.dashboard.DashboardController(this, store);
