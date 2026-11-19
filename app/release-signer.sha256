@@ -1,0 +1,8 @@
+# SHA-256 of the certificate that signs every published bravia-agent.apk.
+# The release workflow refuses to publish an APK signed by any other key:
+# Android would not install it over a release that is already on a TV.
+#
+# This is public: every released APK carries the certificate, and
+#   apksigner verify --print-certs bravia-agent.apk
+# prints this value for it ("Signer #1 certificate SHA-256 digest").
+325ed38bea470647cee14665fb7c5be7c102f227fba6dc47dcf9349d443b87a1

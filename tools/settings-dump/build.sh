@@ -1,11 +1,20 @@
 #!/bin/sh
 # Build, sign and install the settings-dump probe without Gradle.
-# Needs: Android SDK build-tools + a platform, a JDK, adb.
+# Needs: a JDK, adb, and the Android SDK platform and build-tools that
+# app/toolchain.env names (the ones the agent itself is built with).
 set -eu
 HERE=$(cd "$(dirname "$0")" && pwd)
+. "$HERE/../../app/toolchain.env"
 SDK=${ANDROID_SDK_ROOT:-$HOME/Library/Android/sdk}
-BT=$SDK/build-tools/$(ls "$SDK/build-tools" | sort -V | tail -1)
-PLATFORM=$SDK/platforms/$(ls "$SDK/platforms" | sort -V | tail -1)
+BT=$SDK/build-tools/$ANDROID_BUILD_TOOLS
+PLATFORM=$SDK/platforms/$ANDROID_PLATFORM
+if [ ! -x "$BT/aapt2" ] || [ ! -f "$PLATFORM/android.jar" ]; then
+  echo "error: this build needs Android build-tools $ANDROID_BUILD_TOOLS and platform $ANDROID_PLATFORM" >&2
+  echo "       (pinned in app/toolchain.env), and they are not both in $SDK." >&2
+  echo "       Get them with: sdkmanager \"build-tools;$ANDROID_BUILD_TOOLS\" \"platforms;$ANDROID_PLATFORM\"" >&2
+  echo "       or point ANDROID_SDK_ROOT at the SDK that has them." >&2
+  exit 1
+fi
 JAVA_HOME=${JAVA_HOME:-/opt/homebrew/opt/openjdk}
 export PATH="$JAVA_HOME/bin:$BT:$SDK/platform-tools:$PATH"
 OUT=$HERE/build

@@ -1,0 +1,28 @@
+# Reviewed uses of Android APIs that are newer than minSdkVersion.
+#
+# tools/apicheck.py (run by CI and by the release) fails on every use of a
+# platform class, method or field added after minSdkVersion unless it is
+# listed here. A line records that somebody checked the use cannot run on an
+# Android that lacks the API.
+#
+# One use per line, four columns separated by spaces:
+#
+#   <where>   the app class and method that contains the use, Class#method
+#             (code in a lambda counts as the method around it)
+#   <api>     the Android class and member, Class#member(parameter types)
+#   <level>   the API level that member was added in
+#   <reason>  why it is safe below that level: the rest of the line, in words
+#
+# The check prints the first three columns of anything it refuses, ready to
+# paste. Add a line only after the code is guarded: a call inside a
+# Build.VERSION.SDK_INT check with the older call in the other branch, or, for
+# a callback that newer Android calls with a new signature, the older overload
+# overridden as well. A line that no longer matches anything fails the check
+# too, so remove it together with the code.
+
+com.braviafanboy.braviaagent.RemoteFinder#send  android.bluetooth.BluetoothGatt#writeCharacteristic(BluetoothGattCharacteristic,byte[],int)  33  inside "if (SDK_INT >= 33)"; older versions take the setValue() + writeCharacteristic(characteristic) branch
+com.braviafanboy.braviaagent.RemoteFinder$1#onServicesDiscovered  android.bluetooth.BluetoothGatt#writeDescriptor(BluetoothGattDescriptor,byte[])  33  inside "else if (SDK_INT >= 33)"; older versions take the setValue() + writeDescriptor(descriptor) branch
+com.braviafanboy.braviaagent.RemoteFinder$1#onCharacteristicChanged  android.bluetooth.BluetoothGattCallback#onCharacteristicChanged(BluetoothGatt,BluetoothGattCharacteristic,byte[])  33  the two-argument overload that older versions call is overridden too, and acts only when SDK_INT < 33
+com.braviafanboy.braviaagent.Compat#parcelableExtra  android.content.Intent#getParcelableExtra(String,Class)  33  inside "if (SDK_INT >= 33)"; older versions take the untyped getParcelableExtra(String) and check the type themselves
+com.braviafanboy.braviaagent.readers.BluetoothReader$3#onCharacteristicRead  android.bluetooth.BluetoothGattCallback#onCharacteristicRead(BluetoothGatt,BluetoothGattCharacteristic,byte[],int)  33  the three-argument overload that older versions call is overridden too, and acts only when SDK_INT < 33
+com.braviafanboy.braviaagent.readers.BluetoothReader$3#onCharacteristicChanged  android.bluetooth.BluetoothGattCallback#onCharacteristicChanged(BluetoothGatt,BluetoothGattCharacteristic,byte[])  33  the two-argument overload that older versions call is overridden too, and acts only when SDK_INT < 33

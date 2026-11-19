@@ -6,9 +6,22 @@ local.properties
 .idea/
 *.apk
 *.aab
-*.keystore
-*.jks
 .DS_Store
-release.keystore
-release.keystore.pass
-release.keystore.b64
+__pycache__/
+
+# Signing keys and everything made from them: keystores, exported keys,
+# base64 copies, password files, and backups of any of these
+# (release.keystore.bak, release.keystore.pass.bak, ...). None of it belongs
+# in the repository.
+*.keystore*
+*.jks*
+*.p12*
+*.pfx*
+*.pem*
+*.key
+*.key.*
+*.b64
+*.pass
+*.pass.*
+*.bak
+keystore.properties
