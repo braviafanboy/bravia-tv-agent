@@ -459,14 +459,20 @@ Off by default. State block `ambient` (also `GET /v1/ambient`):
 - `curve`: the current picture mode's six slider values (0..50) at
   `anchors_lux`, interpolated in log-lux. It is the mode's own curve if it
   has one (learnt, or set by a client); else the shared `default`, if there
-  is one; else the mode's start. A start is built once per picture mode, from
-  the brightness that mode had the first time ambient brightness ran in it,
-  shaped like Sony's own auto-luminance curve and reaching that brightness in
-  a bright room (0.10.0; before, one curve built from the first mode's
-  brightness served every mode). Until a mode has a start, `curve` previews
-  it from the TV's current brightness (from 40 if that was never read).
-  Starts are the agent's own: they are not part of `curves`, and resetting a
-  mode falls back to its start.
+  is one; else the mode's start. A start is built each time ambient
+  brightness is switched on in a picture mode, from the viewer's brightness
+  in that mode, shaped like Sony's own auto-luminance curve and reaching that
+  brightness in a bright room (0.10.0; before, one curve built from the first
+  mode's brightness served every mode). Until a mode has a start, `curve`
+  previews it from the TV's current brightness (from 40 if that was never
+  read). Starts are the agent's own: they are not part of `curves`, and
+  resetting a mode falls back to its start.
+- Switching it off in the mode the TV is in puts that mode's brightness back
+  to what the viewer had when it was switched on, unless the viewer has moved
+  the slider since (0.10.0). Where that cannot be written (the TV is in
+  another mode, or showing HDR, whose values are separate), the mode stays as
+  ambient brightness left it; the agent remembers that this is not the
+  viewer's setting, and does not build the next start from it.
 - `curves.default` is null unless a client set one, or the agent made one
   before 0.10.0.
 - `lux`: the room level last acted on (a low percentile of the sensor over

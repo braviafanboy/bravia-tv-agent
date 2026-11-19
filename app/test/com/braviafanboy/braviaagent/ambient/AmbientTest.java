@@ -14,6 +14,7 @@ public final class AmbientTest {
         hint();
         book();
         switches();
+        memory();
         System.out.println("ok: " + passed + " ambient checks passed");
     }
 
@@ -216,8 +217,12 @@ public final class AmbientTest {
         check(b.start("cinema", 50), "cinema from 50");
         eq(10, b.curveFor("professional", -1).values()[5], "professional reaches 10 in a bright room");
         eq(50, b.curveFor("cinema", -1).values()[5], "cinema reaches 50");
-        check(!b.start("cinema", 7), "a later reading (ambient's own doing) does not replace the start");
-        eq(50, b.curveFor("cinema", 7).values()[5], "nor does it show in the curve");
+        check(!b.start("cinema", 7), "a later reading does not replace the start");
+        eq(50, b.curveFor("cinema", -1).values()[5], "which is what it follows while it runs");
+        eq(7, b.curveFor("cinema", 7).values()[5], "off there, it shows what switching on would start from now");
+        b.restart("cinema", 30);
+        eq(30, b.curveFor("cinema", -1).values()[5], "switched on again: the start is built anew");
+        b.restart("cinema", 50);
         check(!b.start(null, 30) && !b.start("vivid", -1), "no mode, or no reading: no start");
         eq(40, b.curveFor("vivid", -1).values()[5], "a mode without one is still previewed");
 
@@ -276,10 +281,83 @@ public final class AmbientTest {
         m.set(null, true);
         check(m.set(null, false) && !m.pending(), "a waiting switch-on can be taken back");
         check(!m.adopt("vivid"), "and then nothing is adopted");
+        // The first look at the TV in a mode after it was switched on there
+        // is told apart, once: that is when its brightness is the viewer's.
+        EnabledModes f = new EnabledModes();
+        f.set("cinema", true);
+        check(!f.takeFresh("professional"), "another mode is not fresh");
+        check(f.takeFresh("cinema") && !f.takeFresh("cinema"), "fresh once per switch-on");
+        f.set("cinema", false);
+        f.set("cinema", true);
+        check(f.takeFresh("cinema"), "and again after off and on");
+        f.set("vivid", true);
+        f.set("vivid", false);
+        check(!f.takeFresh("vivid"), "switched off before the TV was seen there: not fresh");
+        f.set(null, true);
+        f.adopt("standard");
+        check(f.takeFresh("standard"), "a mode that took a waiting switch-on is fresh too");
         // What an agent before 0.10 kept, one switch for the TV, is such a waiting switch-on.
         EnabledModes old = new EnabledModes();
         old.set(null, true);
         check(old.any() && old.adopt("professional") && old.isOn("professional"), "it stays on in the mode in use");
+    }
+
+    /** The viewer's brightness per mode: what a start is built from, and what switching off gives back. */
+    private static void memory() {
+        ModeMemory m = new ModeMemory();
+        eq(5, m.switchedOn("professional", 5), "switched on at 5: that is the viewer's");
+        m.wrote("professional", 4);
+        m.wrote("professional", 3);
+        eq(3, m.left("professional"), "ambient brightness has left it at 3");
+        eq(5, m.switchedOff("professional", 3), "switched off: 5 goes back");
+        eq(-1, m.left("professional"), "and nothing is owed any more");
+        eq(5, m.switchedOn("professional", 5), "on again: from 5, not from where ambient had it");
+
+        // Switched off where it could not be put back (not asked: the TV was
+        // in another mode, or in HDR). The slider still shows ambient's 3.
+        m.wrote("professional", 3);
+        eq(5, m.switchedOn("professional", 3), "on again at ambient's own 3: the start is still from 5");
+        m.wrote("professional", 2);
+        eq(5, m.switchedOn("professional", 2), "and again: it does not creep down");
+
+        // The viewer moved the slider while it was off: that is theirs.
+        m.wrote("professional", 3);
+        eq(8, m.switchedOn("professional", 8), "a brightness ambient did not leave is the viewer's");
+        m.wrote("professional", 6);
+        eq(-1, m.switchedOff("professional", 7), "moved by hand before switching off: left alone");
+        eq(7, m.switchedOn("professional", 7), "and that value is the next start");
+
+        // Nothing written, or written the very same value: nothing to put back.
+        eq(-1, m.switchedOff("professional", 7), "ambient wrote nothing: nothing goes back");
+        m.wrote("professional", 7);
+        eq(-1, m.switchedOff("professional", 7), "it wrote the viewer's own value: nothing to do");
+
+        // A hand change that switched it off (learning off) is the viewer's setting.
+        m.switchedOn("cinema", 50);
+        m.wrote("cinema", 30);
+        m.viewerChose("cinema", 42);
+        eq(42, m.own("cinema"), "the viewer's value is remembered");
+        eq(-1, m.switchedOff("cinema", 42), "and not overwritten when it goes off");
+        eq(42, m.switchedOn("cinema", 42), "the next start is from it");
+
+        // Modes are apart; a mode never switched on has nothing.
+        eq(7, m.own("professional"), "professional kept its own");
+        eq(-1, m.own("vivid"), "vivid has none");
+        m.wrote("vivid", 9);
+        eq(-1, m.left("vivid"), "a write is only remembered where it was switched on");
+        eq(-1, m.switchedOff("vivid", 9), "so there is nothing to give back");
+        // Brightness 0 is a setting like any other.
+        eq(0, m.switchedOn("calm", 0), "switched on at 0");
+        m.restore("photo", 20, 12);
+        eq(20, m.switchedOn("photo", 12), "values read back from storage count the same");
+        // What an off mode's curve is previewed from follows the same rule.
+        ModeMemory v = new ModeMemory();
+        eq(9, v.viewers("standard", 9), "nothing remembered: what the slider shows");
+        v.switchedOn("standard", 40);
+        v.wrote("standard", 25);
+        eq(40, v.viewers("standard", 25), "what ambient left behind is not the viewer's");
+        eq(33, v.viewers("standard", 33), "another value is");
+        eq(-1, v.viewers("standard", -1), "an unknown brightness stays unknown");
     }
 
     private static void eq(Object expected, Object actual, String what) {

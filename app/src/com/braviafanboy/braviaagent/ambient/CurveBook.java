@@ -12,18 +12,21 @@ import java.util.Map;
  * <li>its own: learnt from the viewer's hand changes, or set by a client;
  * <li>the shared one, if a client set a curve for every mode without its own
  *     (agents before 0.10 also made one by themselves, and keep it);
- * <li>its start: built once, from the brightness that mode had the first
- *     time ambient brightness ran in it, so that it reaches the viewer's own
- *     setting in a bright room. Picture modes differ a lot here (a TV ships
- *     with one at 40 and another at 50, and a calibrated one may sit at 10),
- *     which is why the start is the mode's and not one for all;
+ * <li>its start: built from the brightness the mode had when ambient
+ *     brightness was last switched on in it, so that it reaches the viewer's
+ *     own setting in a bright room. Picture modes differ a lot here (a TV
+ *     ships with one at 40 and another at 50, and a calibrated one may sit at
+ *     10), which is why the start is the mode's and not one for all;
  * <li>a preview, kept nowhere: what the start would be for the brightness
- *     given, or for {@link #FALLBACK_BRIGHTNESS} when that is not known.
+ *     given, or for {@link #FALLBACK_BRIGHTNESS} when that is not known. A
+ *     mode ambient brightness is off in shows the preview rather than its
+ *     last start, since switching on builds the start anew.
  * </ol>
  *
- * <p>A start is made once and then left alone: ambient brightness changes the
- * brightness itself, so a later reading says nothing about what the viewer
- * chose. Resetting a mode drops its own curve and falls back to the start.
+ * <p>A start is only ever built from the viewer's own brightness (see
+ * {@link ModeMemory}): while ambient brightness runs, the brightness is its
+ * own doing and says nothing about what the viewer chose. Resetting a mode
+ * drops its own curve and falls back to the start.
  *
  * <p>Not thread-safe: the controller guards it. Pure Java, tested on a desktop
  * JVM.
@@ -37,9 +40,10 @@ public final class CurveBook {
     private final Map<String, AmbientCurve> starts = new LinkedHashMap<>();
 
     /**
-     * The curve for {@code mode}. {@code brightness} is the TV's current one
-     * when it says what the viewer chose (ambient brightness is not running),
-     * else negative; it is only used for a preview.
+     * The curve for {@code mode}. {@code brightness} is the viewer's own
+     * there while ambient brightness is off in the mode, else negative. Off,
+     * a mode without its own curve shows what switching on would start from
+     * now, not the start of the last time.
      */
     public AmbientCurve curveFor(String mode, int brightness) {
         if (mode != null) {
@@ -47,11 +51,12 @@ public final class CurveBook {
             if (c != null) return c;
         }
         if (shared != null) return shared;
+        if (brightness >= 0) return AmbientCurve.fromCurrent(brightness);
         if (mode != null) {
             AmbientCurve c = starts.get(mode);
             if (c != null) return c;
         }
-        return AmbientCurve.fromCurrent(brightness >= 0 ? brightness : FALLBACK_BRIGHTNESS);
+        return AmbientCurve.fromCurrent(FALLBACK_BRIGHTNESS);
     }
 
     /**
@@ -64,6 +69,14 @@ public final class CurveBook {
         if (own.containsKey(mode) || shared != null || starts.containsKey(mode)) return false;
         starts.put(mode, AmbientCurve.fromCurrent(brightness));
         return true;
+    }
+
+    /**
+     * Ambient brightness was switched on in {@code mode}: its start is built
+     * anew from {@code brightness}, the viewer's own there.
+     */
+    public void restart(String mode, int brightness) {
+        if (mode != null && brightness >= 0) starts.put(mode, AmbientCurve.fromCurrent(brightness));
     }
 
     /** Set a mode's own curve; with no mode, the shared one. */

@@ -16,6 +16,7 @@ import com.braviafanboy.braviaagent.ambient.AmbientDecider;
 import com.braviafanboy.braviaagent.ambient.CurveBook;
 import com.braviafanboy.braviaagent.ambient.EnabledModes;
 import com.braviafanboy.braviaagent.ambient.LuxFloor;
+import com.braviafanboy.braviaagent.ambient.ModeMemory;
 import com.braviafanboy.braviaagent.ambient.SignalHint;
 import com.braviafanboy.braviaagent.readers.PictureReader;
 
@@ -95,6 +96,8 @@ public final class AmbientController implements SensorEventListener {
     private boolean learning;
     /** The curves: each mode's own, a shared one, and each mode's start. */
     private final CurveBook book = new CurveBook();
+    /** Each mode's brightness as the viewer had it, and as ambient brightness left it. */
+    private final ModeMemory memory = new ModeMemory();
     private boolean panelOn;
     private final SignalHint signal = new SignalHint();
     private ScheduledFuture<?> ticking;
@@ -185,6 +188,11 @@ public final class AmbientController implements SensorEventListener {
      * switched on (the loop's next read), not taken from an older reading.
      */
     public synchronized void setEnabled(String forMode, boolean on) {
+        setEnabled(forMode, on, true);
+    }
+
+    /** {@code putBack}: when switching off, give the mode the viewer's brightness back. */
+    private synchronized void setEnabled(String forMode, boolean on, boolean putBack) {
         boolean changed;
         // The mode the TV is in: the loop's own reading while it runs, else
         // the picture reader's, which can be a minute old.
@@ -207,7 +215,35 @@ public final class AmbientController implements SensorEventListener {
         restart = true;
         lastContextMs = 0;
         reschedule();
+        // Off in the mode the TV is in: the brightness there is ambient's
+        // doing, so the viewer's own goes back. (In another mode it cannot be
+        // written now; what is remembered keeps the next start honest.)
+        final String off = forMode != null ? forMode : current;
+        if (!on && putBack && off != null && off.equals(current)) exec.execute(() -> putBack(off));
         exec.execute(this::publish);
+    }
+
+    /** Give {@code m}, the mode the TV is in, the viewer's brightness back (ambient thread). */
+    private void putBack(String m) {
+        JSONObject now = picture.readTargetsNow(CONTEXT_TARGETS);
+        if (now == null) return;
+        context = now;
+        lastContextMs = SystemClock.elapsedRealtime();
+        // Another mode by now, or values that are not this mode's own (HDR
+        // has separate ones), or no way to write: leave it.
+        if (!m.equals(value("pictureMode")) || blockedReason() != null) return;
+        int back;
+        synchronized (this) {
+            back = memory.switchedOff(m, intValue("brightness"));
+            saveMemory();
+        }
+        if (back < 0) return;
+        try {
+            picture.writeTargetQuiet("brightness", String.valueOf(back));
+            Log.i(TAG, "ambient: " + m + " has its brightness back: " + back);
+        } catch (PictureReader.WriteException e) {
+            Log.w(TAG, "ambient: could not put the brightness back: " + e.code);
+        }
     }
 
     /** On in the mode the TV is in, or switched on and waiting for that mode to be read. */
@@ -381,6 +417,10 @@ public final class AmbientController implements SensorEventListener {
             try {
                 picture.writeTargetQuiet("brightness", String.valueOf(next));
                 lastWritten = next;
+                synchronized (this) {
+                    memory.wrote(mode, next);
+                    saveMemory();
+                }
             } catch (PictureReader.WriteException e) {
                 Log.w(TAG, "ambient: brightness write refused: " + e.code);
                 // Read afresh, and leave the slider alone for a while rather
@@ -405,10 +445,17 @@ public final class AmbientController implements SensorEventListener {
                 mode = newMode;
                 // Switched on "in the mode the TV is in": this is it.
                 if (switched.adopt(newMode)) saveEnabled();
-                // Where it is on, nothing has been written since the switch
-                // to this mode, so its brightness is still the viewer's own:
-                // the start of this mode's curve.
-                if (switched.isOn(newMode) && book.start(newMode, brightness)) {
+                if (brightness >= 0 && switched.takeFresh(newMode)) {
+                    // Just switched on here: the mode starts from the
+                    // viewer's own brightness, which is what it shows unless
+                    // that is only what ambient brightness left behind.
+                    int own = memory.switchedOn(newMode, brightness);
+                    book.restart(newMode, own);
+                    save();
+                    saveMemory();
+                    Log.i(TAG, "ambient: " + newMode + " starts from brightness " + own);
+                } else if (switched.isOn(newMode) && book.start(newMode, brightness)) {
+                    // On here from before starts were kept: make one.
                     save();
                     Log.i(TAG, "ambient: " + newMode + " starts from brightness " + brightness);
                 }
@@ -448,7 +495,11 @@ public final class AmbientController implements SensorEventListener {
             // Learning off: a hand change to the brightness turns ambient
             // brightness off until someone switches it back on. No auto-resume.
             Log.i(TAG, "ambient: disabled after a manual change to " + brightness);
-            setEnabled(mode, false);
+            synchronized (this) {
+                memory.viewerChose(mode, brightness);
+                saveMemory();
+            }
+            setEnabled(mode, false, false);  // the viewer's value stays
             return;
         }
         // Learning on: take the new value as this mode's brightness for the
@@ -493,7 +544,7 @@ public final class AmbientController implements SensorEventListener {
         // A mode that has no curve yet shows what it would start from. The
         // TV's brightness says that only while ambient brightness is off:
         // once it runs, the brightness is its own doing.
-        return book.curveFor(m, switched.isOn(m) ? -1 : knownBrightness());
+        return book.curveFor(m, switched.isOn(m) ? -1 : memory.viewers(m, knownBrightness()));
     }
 
     private void setState(String s, String why) {
@@ -589,6 +640,18 @@ public final class AmbientController implements SensorEventListener {
                     }
                 }
             }
+            String remembered = prefs.getString("memory", null);
+            if (remembered != null) {
+                JSONObject m = new JSONObject(remembered);
+                JSONObject own = m.optJSONObject("own"), left = m.optJSONObject("left");
+                if (own != null) {
+                    Iterator<String> it = own.keys();
+                    while (it.hasNext()) {
+                        String k = it.next();
+                        memory.restore(k, own.optInt(k, -1), left == null ? -1 : left.optInt(k, -1));
+                    }
+                }
+            }
             String starts = prefs.getString("starts", null);
             if (starts != null) {
                 JSONObject st = new JSONObject(starts);
@@ -607,6 +670,17 @@ public final class AmbientController implements SensorEventListener {
     private synchronized void saveEnabled() {
         prefs.edit().putString("enabled_modes", new JSONArray(switched.modes()).toString())
             .putBoolean("enabled_pending", switched.pending()).remove("enabled").apply();
+    }
+
+    private synchronized void saveMemory() {
+        try {
+            JSONObject m = new JSONObject();
+            m.put("own", new JSONObject(memory.ownByMode()));
+            m.put("left", new JSONObject(memory.leftByMode()));
+            prefs.edit().putString("memory", m.toString()).apply();
+        } catch (Exception e) {
+            Log.w(TAG, "ambient: saving the remembered brightness failed: " + e);
+        }
     }
 
     private synchronized void save() {

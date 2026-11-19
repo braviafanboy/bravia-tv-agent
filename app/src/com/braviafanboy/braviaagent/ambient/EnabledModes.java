@@ -21,6 +21,8 @@ import java.util.Set;
  */
 public final class EnabledModes {
     private final Set<String> on = new LinkedHashSet<>();
+    /** Modes it was switched on in since the TV was last seen in them. */
+    private final Set<String> fresh = new LinkedHashSet<>();
     private boolean pending;
 
     /** Whether it is on in {@code mode}; before the mode is known, whether it was just switched on. */
@@ -44,7 +46,22 @@ public final class EnabledModes {
             pending = value;
             return true;
         }
-        return value ? on.add(mode) : on.remove(mode);
+        if (value) {
+            if (!on.add(mode)) return false;
+            fresh.add(mode);
+            return true;
+        }
+        fresh.remove(mode);
+        return on.remove(mode);
+    }
+
+    /**
+     * Whether it was switched on in {@code mode} and this is the first look
+     * at the TV in that mode since. True once per switch-on: it is the moment
+     * the mode's brightness is still the viewer's own.
+     */
+    public boolean takeFresh(String mode) {
+        return mode != null && fresh.remove(mode);
     }
 
     /** The TV is in {@code mode}: a switch-on that was waiting for it applies here. Returns whether one did. */
@@ -52,6 +69,7 @@ public final class EnabledModes {
         if (!pending || mode == null) return false;
         pending = false;
         on.add(mode);
+        fresh.add(mode);
         return true;
     }
 

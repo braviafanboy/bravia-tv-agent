@@ -35,10 +35,13 @@ pair with this agent.
   if it was on, it stays on in the picture mode you are using when the update
   first runs, and is off in the others until you switch it on there.
 - Ambient brightness starts each picture mode from that mode's own
-  brightness. Before, the first mode it ran in set the starting curve for all
-  of them, so a mode set much brighter was held down to it. A TV that already
-  has that one curve keeps it; set the curves with a default of null to drop
-  it.
+  brightness, taken each time you switch it on there. Before, the first mode
+  it ran in set the starting curve for all of them, so a mode set much
+  brighter was held down to it. A TV that already has that one curve keeps
+  it; set the curves with a default of null to drop it.
+- Switching ambient brightness off gives the picture mode its brightness
+  back: the value it had when you switched it on, unless you have changed it
+  by hand since.
 - Fix: ambient brightness stayed paused in SDR when Home Assistant had gone
   away during HDR; it now falls back on its own reading after two minutes.
 - Fix: a dashboard whose page crashed, or ran out of memory, took the whole
